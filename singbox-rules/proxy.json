@@ -1,10 +1,9 @@
 {
   "version": 2,
-  "route": {
-    "rules": [
-      {
-        "domain_suffix": [
-          "qichiyu.com",
+  "rules": [
+    {
+      "domain_suffix": [
+        "qichiyu.com",
           "ping0.cc",
           "speedtest.net",
           "dns.google",
@@ -16,22 +15,14 @@
           "doh.dns.sb",
           "doh.opendns.com",
           "hk-hkg.doh.sb"
-        ]
-      },
-      {
-        "domain_keyword": [
-          "googlevideo",
-          "host",
-          "panel",
-          "1e100"
-        ]
-      },
-      {
+      ]
+    },
+    {
         "source_ip_cidr": [
           "192.168.1.200/32"
         ]
-      },
-      {
+    },
+    {
         "ip_cidr": [
           "8.8.8.8/32",
           "8.8.4.4/32",
@@ -42,6 +33,5 @@
           "208.67.220.220/32"
         ]
       }
-    ]
-  }
+  ]
 }
