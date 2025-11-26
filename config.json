@@ -425,25 +425,25 @@
   },
   "outbounds": [
     {
-      "tag": "PROXY",
+      "tag": "all",
       "type": "selector",
-      "outbounds": [ ]
+      "outbounds": []
     },
     {
-      "tag": "TEST",
+      "tag": "all-auto",
       "type": "urltest",
-      "interval": "10m",
-      "tolerance": 100,
-      "outbounds": [
-              ]
+      "outbounds": [],
+      "url": "https://www.gstatic.com/generate_204",
+      "interval": "1m",
+      "tolerance": 50
     },
     {
       "tag": "ZOTHERS",
       "type": "selector",
       "outbounds": [
         "Direct",
-        "PROXY",
-        "TEST"
+        "all",
+        "all-auto"
       ]
     },
     {
