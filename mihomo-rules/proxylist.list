@@ -12,7 +12,7 @@ DOMAIN-SUFFIX,speedtest.net
 
 
 SRC-IP-CIDR,10.0.0.200/32,no-resolve
-
+SRC-IP-CIDR,1.1.1.1,no-resolve
 # 国外DNS
 DOMAIN-SUFFIX,dns.google
 DOMAIN-SUFFIX,1dot1dot1dot1.cloudflare-dns.com
