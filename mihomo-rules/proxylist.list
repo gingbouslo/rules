@@ -9,8 +9,8 @@ DOMAIN-KEYWORD,panel
 DOMAIN-KEYWORD,1e100
 DOMAIN-SUFFIX,ping0.cc
 DOMAIN-SUFFIX,speedtest.net
-
-
+DOMAIN-SUFFIX,grok.com
+DOMAIN-KEYWORD,grok
 SRC-IP-CIDR,10.0.0.200/32,no-resolve
 # 国外DNS
 DOMAIN-SUFFIX,dns.google
