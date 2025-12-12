@@ -30,7 +30,7 @@ jobs:
 
           SRC_DIR="source/geo/geosite"
           DST_DIR="update"
-          OUTFILE="${DST_DIR}/geosite_global.yaml"
+          OUTFILE="${DST_DIR}/foreign_domain.yaml"
           LISTFILE="${DST_DIR}/geosite_global_files.txt"
 
           mkdir -p "$DST_DIR"
@@ -98,7 +98,7 @@ jobs:
           git config --global user.email "action@github.com"
           git config --global user.name  "GitHub Action"
 
-          git add geosite_global.yaml geosite_global_files.txt || true
-          git commit -m "Update geosite_global.yaml (global merge)" || exit 0
+          git add gforeign_domain.yaml geosite_global_files.txt || true
+          git commit -m "Update foreign_domain.yaml (global merge)" || exit 0
           git push origin HEAD:main
 
