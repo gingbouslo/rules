@@ -1,4 +1,4 @@
-name: 合并!cn域名
+name: Merge Global Domain Rules
 
 on:
   schedule:
@@ -30,7 +30,7 @@ jobs:
 
           SRC_DIR="source/geo/geosite"
           DST_DIR="update"
-          OUTFILE="${DST_DIR}/foreign_domain.yaml"
+          OUTFILE="${DST_DIR}/geosite_global.yaml"
           LISTFILE="${DST_DIR}/geosite_global_files.txt"
 
           mkdir -p "$DST_DIR"
@@ -61,7 +61,7 @@ jobs:
             youporn.yaml redtube.yaml spankbang.yaml rule34.yaml
 
             openai.yaml anthropic.yaml novelai.yaml huggingface.yaml stability.yaml
-            midjourney.yaml civitai.yaml replicate.yaml perplexity.yaml google-gemini.yaml
+            midjourney.yaml civitai.yaml replicate.yaml perplexity.yaml
           )
 
           echo "payload:" > "$OUTFILE"
@@ -98,7 +98,6 @@ jobs:
           git config --global user.email "action@github.com"
           git config --global user.name  "GitHub Action"
 
-          git add gforeign_domain.yaml geosite_global_files.txt || true
-          git commit -m "Update foreign_domain.yaml (global merge)" || exit 0
+          git add geosite_global.yaml geosite_global_files.txt || true
+          git commit -m "Update geosite_global.yaml (global merge)" || exit 0
           git push origin HEAD:main
-
