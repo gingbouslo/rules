@@ -61,7 +61,7 @@ jobs:
             youporn.yaml redtube.yaml spankbang.yaml rule34.yaml
 
             openai.yaml anthropic.yaml novelai.yaml huggingface.yaml stability.yaml
-            midjourney.yaml civitai.yaml replicate.yaml perplexity.yaml
+            midjourney.yaml civitai.yaml replicate.yaml perplexity.yaml google-gemini.yaml
           )
 
           echo "payload:" > "$OUTFILE"
