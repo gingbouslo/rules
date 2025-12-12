@@ -3,7 +3,7 @@ name: singbox-ads-合并
 on:
   workflow_dispatch:
   schedule:
-    - cron: "0 6 * * *"
+    - cron: "0 6 * * *"   # 每天 6:00 UTC 运行
 
 jobs:
   build:
@@ -27,8 +27,8 @@ jobs:
 
           SRC="upstream/geo/geosite"
           DST="update"
-          OUT_JSON="${DST}/adsplus_domain.json"
-          OUT_LIST="${DST}/adsplus_domain_files.txt"
+          OUT_JSON="${DST}/foreign_domain.json"
+          OUT_LIST="${DST}/foreign_domain_files.txt"
 
           mkdir -p "$DST"
 
@@ -47,25 +47,19 @@ jobs:
             echo "$(basename "$f")" >> "$OUT_LIST"
           done
 
-          # --- 合并所有 domain_suffix ---
+          # --- 合并所有 domain_suffix 并去空行/空字符串 ---
           TMP_DOMAINS=$(mktemp)
-
           for f in "${FILES[@]}"; do
             jq -r '.rules[].domain_suffix[]?' "$f" >> "$TMP_DOMAINS"
           done
 
-          # 去空行
-          sed -i '/^[[:space:]]*$/d' "$TMP_DOMAINS"
+          domains_json=$(jq -R -s -c 'split("\n") | map(select(length > 0))' "$TMP_DOMAINS")
 
-          # --- 生成最终 JSON ---
-          domains_json=$(jq -R -s -c 'split("\n")' "$TMP_DOMAINS")
           jq -n --argjson arr "$domains_json" '
             {
               version: 2,
               rules: [
-                {
-                  domain_suffix: $arr
-                }
+                { domain_suffix: $arr }
               ]
             }
           ' > "$OUT_JSON"
@@ -76,6 +70,7 @@ jobs:
         run: |
           git config --global user.email "action@github.com"
           git config --global user.name "GitHub Action"
-          git add update/adsplus_domain.json update/adsplus_domain_files.txt || true
-          git commit -m "Update adsplus_domain.json (merged)" || echo "No changes"
+          git add update/foreign_domain.json update/foreign_domain_files.txt || true
+          git commit -m "Update foreign_domain.json (merged ADS files)" || echo "No changes"
           git push || echo "Nothing to push"
+
