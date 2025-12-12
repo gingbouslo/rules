@@ -1,0 +1,106 @@
+name: 合并！cn
+
+on:
+  schedule:
+    - cron: "0 6 * * *"   # 每天 06:00 执行
+  workflow_dispatch:
+
+jobs:
+  merge-global:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout update repo
+        uses: actions/checkout@v4
+        with:
+          path: update
+
+      - name: Checkout meta-rules-dat source repo
+        uses: actions/checkout@v4
+        with:
+          repository: MetaCubeX/meta-rules-dat
+          ref: meta
+          path: source
+
+      - name: Merge Global YAML files
+        run: |
+          set -euo pipefail
+
+          SRC_DIR="source/geo/geosite"
+          DST_DIR="update"
+          OUTFILE="${DST_DIR}/geosite_global.yaml"
+          LISTFILE="${DST_DIR}/geosite_global_files.txt"
+
+          mkdir -p "$DST_DIR"
+
+          # 完整匹配名单（已确认）
+          EXACT_LIST=(
+            gfw.yaml google.yaml youtube.yaml tiktok.yaml onedrive.yaml github.yaml
+            telegram.yaml facebook.yaml twitter.yaml meta.yaml instagram.yaml paypal.yaml
+            reddit.yaml netflix.yaml discord.yaml
+
+            steam.yaml steamcommunity.yaml steampowered.yaml epic.yaml epicgames.yaml
+            origin.yaml ea.yaml uplay.yaml ubisoft.yaml battlenet.yaml blizzard.yaml
+            rockstar.yaml psn.yaml xbox.yaml
+
+            medium.yaml tumblr.yaml blogspot.yaml blogger.yaml wordpress.yaml ghost.yaml
+            substack.yaml deviantart.yaml pixiv.yaml
+
+            binance.yaml coinbase.yaml kraken.yaml blockchain.yaml bitfinex.yaml okx.yaml
+            huobi.yaml ethereum.yaml bitcoin.yaml uniswap.yaml
+
+            arxiv.yaml nature.yaml science.yaml acm.yaml ieee.yaml springer.yaml jstor.yaml
+            researchgate.yaml pubmed.yaml
+
+            nordvpn.yaml expressvpn.yaml protonvpn.yaml surfshark.yaml windscribe.yaml
+            outline.yaml lantern.yaml psiphon.yaml mullvad.yaml
+
+            porn.yaml pornhub.yaml xvideos.yaml xnxx.yaml xhamster.yaml brazzers.yaml
+            youporn.yaml redtube.yaml spankbang.yaml rule34.yaml
+
+            openai.yaml anthropic.yaml novelai.yaml huggingface.yaml stability.yaml
+            midjourney.yaml civitai.yaml replicate.yaml perplexity.yaml
+          )
+
+          echo "payload:" > "$OUTFILE"
+          : > "$LISTFILE"
+
+          # 遍历 geosite 目录下所有 yaml 文件
+          for file in "$SRC_DIR"/*.yaml; do
+            filename=$(basename "$file")
+
+            include_file=false
+
+            # ① 完整匹配（精确匹配 EXACT_LIST）
+            for exact in "${EXACT_LIST[@]}"; do
+              if [[ "$filename" == "$exact" ]]; then
+                include_file=true
+                break
+              fi
+            done
+
+            # ② 匹配 !cn 且不包含 ads （模糊匹配）
+            if [[ "$filename" == *"!cn"* && "$filename" != *"ads"* ]]; then
+              include_file=true
+            fi
+
+            # 不符合则跳过
+            if [[ "$include_file" == false ]]; then
+              continue
+            fi
+
+            echo "$filename" >> "$LISTFILE"
+
+            # 追加文件内容（去除空行和 payload:）
+            sed '/^payload:/d;/^[[:space:]]*$/d' "$file" >> "$OUTFILE"
+          done
+
+      - name: Commit and Push
+        run: |
+          cd update
+          git config --global user.email "action@github.com"
+          git config --global user.name  "GitHub Action"
+
+          git add geosite_global.yaml geosite_global_files.txt || true
+          git commit -m "Update geosite_global.yaml (global merge)" || true
+          git push || true
