@@ -50,6 +50,7 @@ facebook.yaml
 geolocation-!cn.yaml
 gfw.yaml
 github.yaml
+google-gemini.yaml
 google.yaml
 google@!cn.yaml
 googlefcm@!cn.yaml

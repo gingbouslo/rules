@@ -35172,6 +35172,29 @@ payload:
     - +.blob.core.windows.net
     - +.collector.github.com
     - +.copilot-telemetry.githubusercontent.com
+    - ai.google.dev
+    - alkalicore-pa.clients6.google.com
+    - alkalimakersuite-pa.clients6.google.com
+    - webchannel-alkalimakersuite-pa.clients6.google.com
+    - +.gemini.google
+    - +.deepmind.google
+    - +.labs.google
+    - +.jules.google
+    - +.deepmind.com
+    - +.notebooklm.google
+    - +.generativeai.google
+    - +.proactivebackend-pa.googleapis.com
+    - +.aistudio.google.com
+    - +.bard.google.com
+    - +.makersuite.google.com
+    - +.gemini.google.com
+    - +.robinfrontend-pa.googleapis.com
+    - +.notebooklm.google.com
+    - +.generativelanguage.googleapis.com
+    - +.jules.google.com
+    - +.geller-pa.googleapis.com
+    - +.aisandbox-pa.googleapis.com
+    - +.aida.googleapis.com
     - google-ohttp-relay-safebrowsing.fastly-edge.com
     - ai.google.dev
     - alkalicore-pa.clients6.google.com
