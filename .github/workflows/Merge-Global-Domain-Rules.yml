@@ -1,4 +1,4 @@
-name: 合并！cn
+name: 合并!cn域名
 
 on:
   schedule:
@@ -10,11 +10,13 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      # === 克隆目标仓库（将上传到 update/）===
       - name: Checkout update repo
         uses: actions/checkout@v4
         with:
-          path: update
+          path: update  # 当前仓库克隆到 update 目录（非常关键）
 
+      # === 克隆 geosite 源仓库 ===
       - name: Checkout meta-rules-dat source repo
         uses: actions/checkout@v4
         with:
@@ -59,42 +61,36 @@ jobs:
             youporn.yaml redtube.yaml spankbang.yaml rule34.yaml
 
             openai.yaml anthropic.yaml novelai.yaml huggingface.yaml stability.yaml
-            midjourney.yaml civitai.yaml replicate.yaml perplexity.yaml google-gemini.yaml
+            midjourney.yaml civitai.yaml replicate.yaml perplexity.yaml
           )
 
           echo "payload:" > "$OUTFILE"
           : > "$LISTFILE"
 
-          # 遍历 geosite 目录下所有 yaml 文件
           for file in "$SRC_DIR"/*.yaml; do
             filename=$(basename "$file")
 
             include_file=false
 
-            # ① 完整匹配（精确匹配 EXACT_LIST）
+            # 精确匹配
             for exact in "${EXACT_LIST[@]}"; do
-              if [[ "$filename" == "$exact" ]]; then
-                include_file=true
-                break
-              fi
+              [[ "$filename" == "$exact" ]] && include_file=true
             done
 
-            # ② 匹配 !cn 且不包含 ads （模糊匹配）
+            # 模糊匹配 !cn 不包含 ads
             if [[ "$filename" == *"!cn"* && "$filename" != *"ads"* ]]; then
               include_file=true
             fi
 
-            # 不符合则跳过
-            if [[ "$include_file" == false ]]; then
-              continue
-            fi
+            [[ "$include_file" == false ]] && continue
 
             echo "$filename" >> "$LISTFILE"
 
-            # 追加文件内容（去除空行和 payload:）
+            # 合并内容（去掉空行与 payload:）
             sed '/^payload:/d;/^[[:space:]]*$/d' "$file" >> "$OUTFILE"
           done
 
+      # === 推送 update/ 目录 ===
       - name: Commit and Push changes
         run: |
           cd update   # 必须进入 update，否则会推送到主目录！
@@ -105,3 +101,4 @@ jobs:
           git add geosite_global.yaml geosite_global_files.txt || true
           git commit -m "Update geosite_global.yaml (global merge)" || exit 0
           git push origin HEAD:main
+
