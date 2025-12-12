@@ -3,7 +3,7 @@ name: Merge ADS JSON Rules
 on:
   workflow_dispatch:
   schedule:
-    - cron: "0 6 * * *"   # 每天 6:00 UTC 运行
+    - cron: "0 6 * * *"
 
 jobs:
   build:
@@ -32,7 +32,7 @@ jobs:
 
           mkdir -p "$DST"
 
-          # ---- 精准匹配 ads（两侧必须为符号或边界） ----
+          # 精准匹配 ads（两侧必须为符号或边界）
           mapfile -t FILES < <(
             find "$SRC" -type f -name "*.json" \
               | grep -Ei '(^|[^a-z0-9])ads([^a-z0-9]|$)' \
@@ -47,26 +47,27 @@ jobs:
             echo "$(basename "$f")" >> "$OUT_LIST"
           done
 
-          # --- 合并所有的 domain_suffix ---
+          # --- 合并所有 domain_suffix ---
           TMP_DOMAINS=$(mktemp)
 
           for f in "${FILES[@]}"; do
             jq -r '.rules[].domain_suffix[]?' "$f" >> "$TMP_DOMAINS"
           done
 
-          # 去空行，不排序不去重
+          # 去空行
           sed -i '/^[[:space:]]*$/d' "$TMP_DOMAINS"
 
           # --- 生成最终 JSON ---
-          jq -n --argfile domains "$TMP_DOMAINS" '
-          {
-            version: 2,
-            rules: [
-              {
-                domain_suffix: $domains
-              }
-            ]
-          }
+          domains_json=$(jq -R -s -c 'split("\n")' "$TMP_DOMAINS")
+          jq -n --argjson arr "$domains_json" '
+            {
+              version: 2,
+              rules: [
+                {
+                  domain_suffix: $arr
+                }
+              ]
+            }
           ' > "$OUT_JSON"
 
           echo "Merged JSON written to $OUT_JSON"
