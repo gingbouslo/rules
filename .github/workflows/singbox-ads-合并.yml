@@ -10,19 +10,19 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      # 1️⃣ Checkout 当前仓库
       - name: Checkout current repo
         uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
 
-      # 2️⃣ Checkout 上游仓库
       - name: Checkout MetaCubeX/meta-rules-dat (sing branch)
         uses: actions/checkout@v4
         with:
           repository: MetaCubeX/meta-rules-dat
           ref: sing
           path: upstream
+          token: ${{ secrets.GITHUB_TOKEN }}
 
-      # 3️⃣ 合并 ADS JSON 文件
       - name: Merge ADS JSON files
         shell: bash
         run: |
@@ -35,7 +35,7 @@ jobs:
 
           mkdir -p "$DST"
 
-          # 精准匹配 ads（前后必须为符号或边界）
+          # 精准匹配 ads
           mapfile -t FILES < <(
             find "$SRC" -type f -name "*.json" \
               | grep -Ei '(^|[^a-z0-9])ads([^a-z0-9]|$)' \
@@ -69,17 +69,19 @@ jobs:
 
           echo "Merged JSON written to $OUT_JSON"
 
-      # 4️⃣ Commit & Push
       - name: Commit & Push update/
         shell: bash
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           git config --global user.email "action@github.com"
           git config --global user.name "GitHub Action"
 
           git add update/foreign_domain.json update/foreign_domain_files.txt
+          
           if git diff --cached --quiet; then
             echo "No changes to commit"
           else
             git commit -m "Update foreign_domain.json (merged ADS files)"
-            git push
+            git push "https://${GITHUB_ACTOR}:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" HEAD:main
           fi
