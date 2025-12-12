@@ -41,13 +41,13 @@ jobs:
 
           echo "Found ${#FILES[@]} ADS JSON files"
 
-          # 写入来源文件名列表
+          # 输出来源文件名
           : > "$OUT_LIST"
           for f in "${FILES[@]}"; do
             echo "$(basename "$f")" >> "$OUT_LIST"
           done
 
-          # --- 合并所有 domain_suffix 并去空行/空字符串 ---
+          # --- 合并 domain_suffix 并去空行、空字符串 ---
           TMP_DOMAINS=$(mktemp)
           for f in "${FILES[@]}"; do
             jq -r '.rules[].domain_suffix[]?' "$f" >> "$TMP_DOMAINS"
@@ -70,7 +70,13 @@ jobs:
         run: |
           git config --global user.email "action@github.com"
           git config --global user.name "GitHub Action"
+
+          # 确保在仓库根目录
+          cd $GITHUB_WORKSPACE
+
+          # 添加 update 下的文件
           git add update/foreign_domain.json update/foreign_domain_files.txt || true
-          git commit -m "Update foreign_domain.json (merged ADS files)" || echo "No changes"
+          git commit -m "Update foreign_domain.json (merged ADS files)" || echo "No changes to commit"
           git push || echo "Nothing to push"
+
 
