@@ -1,103 +1,110 @@
-name: Merge Global Domain Rules
+name: Merge GFWPlus Rules
 
 on:
-  schedule:
-    - cron: "0 6 * * *"   # 每天 06:00 执行
   workflow_dispatch:
+  schedule:
+    - cron: "0 6 * * *"  # 每天 06:00 UTC 自动执行
 
 jobs:
-  merge-global:
+  build:
     runs-on: ubuntu-latest
 
     steps:
-      # === 克隆目标仓库（将上传到 update/）===
-      - name: Checkout update repo
+      - name: Checkout current repo
         uses: actions/checkout@v4
-        with:
-          path: update  # 当前仓库克隆到 update 目录（非常关键）
 
-      # === 克隆 geosite 源仓库 ===
-      - name: Checkout meta-rules-dat source repo
+      - name: Checkout upstream meta-rules-dat
         uses: actions/checkout@v4
         with:
           repository: MetaCubeX/meta-rules-dat
           ref: meta
-          path: source
+          path: upstream
 
-      - name: Merge Global YAML files
+      - name: Merge GFWPlus YAML files
+        shell: bash
         run: |
           set -euo pipefail
 
-          SRC_DIR="source/geo/geosite"
-          DST_DIR="update"
-          OUTFILE="${DST_DIR}/geosite_global.yaml"
-          LISTFILE="${DST_DIR}/geosite_global_files.txt"
+          SRC="upstream/geo/geosite"
+          DST="update"
+          OUT="${DST}/gfwplus_domain.yaml"
 
-          mkdir -p "$DST_DIR"
+          echo "Merging files into ${OUT}"
+          mkdir -p "$DST"
 
-          # 完整匹配名单（已确认）
+          # 输出头部
+          echo "payload:" > "$OUT"
+          echo "# merged gfwplus domain rules" >> "$OUT"
+          echo >> "$OUT"
+
+          # 完整匹配列表（全部带引号）
           EXACT_LIST=(
-            gfw.yaml google.yaml youtube.yaml tiktok.yaml onedrive.yaml github.yaml
-            telegram.yaml facebook.yaml twitter.yaml meta.yaml instagram.yaml paypal.yaml
-            reddit.yaml netflix.yaml discord.yaml
+            "gfw.yaml" "google.yaml" "youtube.yaml" "tiktok.yaml" "onedrive.yaml" "github.yaml"
+            "telegram.yaml" "facebook.yaml" "twitter.yaml" "meta.yaml" "instagram.yaml" "paypal.yaml"
+            "reddit.yaml" "netflix.yaml" "discord.yaml"
 
-            steam.yaml steamcommunity.yaml steampowered.yaml epic.yaml epicgames.yaml
-            origin.yaml ea.yaml uplay.yaml ubisoft.yaml battlenet.yaml blizzard.yaml
-            rockstar.yaml psn.yaml xbox.yaml
+            "steam.yaml" "steamcommunity.yaml" "steampowered.yaml" "epic.yaml" "epicgames.yaml"
+            "origin.yaml" "ea.yaml" "uplay.yaml" "ubisoft.yaml" "battlenet.yaml" "blizzard.yaml"
+            "rockstar.yaml" "psn.yaml" "xbox.yaml"
 
-            medium.yaml tumblr.yaml blogspot.yaml blogger.yaml wordpress.yaml ghost.yaml
-            substack.yaml deviantart.yaml pixiv.yaml
+            "medium.yaml" "tumblr.yaml" "blogspot.yaml" "blogger.yaml" "wordpress.yaml" "ghost.yaml"
+            "substack.yaml" "deviantart.yaml" "pixiv.yaml"
 
-            binance.yaml coinbase.yaml kraken.yaml blockchain.yaml bitfinex.yaml okx.yaml
-            huobi.yaml ethereum.yaml bitcoin.yaml uniswap.yaml
+            "binance.yaml" "coinbase.yaml" "kraken.yaml" "blockchain.yaml" "bitfinex.yaml" "okx.yaml"
+            "huobi.yaml" "ethereum.yaml" "bitcoin.yaml" "uniswap.yaml"
 
-            arxiv.yaml nature.yaml science.yaml acm.yaml ieee.yaml springer.yaml jstor.yaml
-            researchgate.yaml pubmed.yaml
+            "arxiv.yaml" "nature.yaml" "science.yaml" "acm.yaml" "ieee.yaml" "springer.yaml" "jstor.yaml"
+            "researchgate.yaml" "pubmed.yaml"
 
-            nordvpn.yaml expressvpn.yaml protonvpn.yaml surfshark.yaml windscribe.yaml
-            outline.yaml lantern.yaml psiphon.yaml mullvad.yaml
+            "nordvpn.yaml" "expressvpn.yaml" "protonvpn.yaml" "surfshark.yaml" "windscribe.yaml"
+            "outline.yaml" "lantern.yaml" "psiphon.yaml" "mullvad.yaml"
 
-            porn.yaml pornhub.yaml xvideos.yaml xnxx.yaml xhamster.yaml brazzers.yaml
-            youporn.yaml redtube.yaml spankbang.yaml rule34.yaml
+            "porn.yaml" "pornhub.yaml" "xvideos.yaml" "xnxx.yaml" "xhamster.yaml" "brazzers.yaml"
+            "youporn.yaml" "redtube.yaml" "spankbang.yaml" "rule34.yaml"
 
-            openai.yaml anthropic.yaml novelai.yaml huggingface.yaml stability.yaml
-            midjourney.yaml civitai.yaml replicate.yaml perplexity.yaml
+            "openai.yaml" "anthropic.yaml" "novelai.yaml" "huggingface.yaml" "stability.yaml"
+            "midjourney.yaml" "civitai.yaml" "replicate.yaml" "perplexity.yaml"
           )
 
-          echo "payload:" > "$OUTFILE"
-          : > "$LISTFILE"
+          # 收集需要合并的文件
+          mapfile -t FILES < <(
+            find "$SRC" -type f -name "*.yaml" | while read -r file; do
+              base=$(basename "$file")
 
-          for file in "$SRC_DIR"/*.yaml; do
-            filename=$(basename "$file")
+              # 完整匹配
+              for name in "${EXACT_LIST[@]}"; do
+                [[ "$base" == "$name" ]] && echo "$file"
+              done
 
-            include_file=false
+              # !cn 且不含 ads
+              if [[ "$base" =~ \!cn ]] && [[ ! "$base" =~ ads ]]; then
+                echo "$file"
+              fi
+            done | sort -u
+          )
 
-            # 精确匹配
-            for exact in "${EXACT_LIST[@]}"; do
-              [[ "$filename" == "$exact" ]] && include_file=true
-            done
+          echo "# merged from files:" >> "$OUT"
+          for f in "${FILES[@]}"; do
+            echo "# - $(basename "$f")" >> "$OUT"
+          done
+          echo >> "$OUT"
 
-            # 模糊匹配 !cn 不包含 ads
-            if [[ "$filename" == *"!cn"* && "$filename" != *"ads"* ]]; then
-              include_file=true
+          FIRST=1
+          for f in "${FILES[@]}"; do
+            echo "Processing $f"
+            if [[ $FIRST -eq 1 ]]; then
+              grep -vE '^\s*$' "$f" >> "$OUT"
+              FIRST=0
+            else
+              grep -vE '^\s*$|^payload:' "$f" >> "$OUT"
             fi
-
-            [[ "$include_file" == false ]] && continue
-
-            echo "$filename" >> "$LISTFILE"
-
-            # 合并内容（去掉空行与 payload:）
-            sed '/^payload:/d;/^[[:space:]]*$/d' "$file" >> "$OUTFILE"
           done
 
-      # === 推送 update/ 目录 ===
-      - name: Commit and Push changes
+      - name: Commit changes
         run: |
-          cd update   # 必须进入 update，否则会推送到主目录！
-
           git config --global user.email "action@github.com"
-          git config --global user.name  "GitHub Action"
+          git config --global user.name "GitHub Action"
 
-          git add geosite_global.yaml geosite_global_files.txt || true
-          git commit -m "Update geosite_global.yaml (global merge)" || exit 0
-          git push origin HEAD:main
+          git add update/gfwplus_domain.yaml
+          git commit -m "Update gfwplus_domain.yaml" || echo "No changes"
+          git push
