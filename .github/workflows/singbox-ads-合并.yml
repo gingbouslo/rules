@@ -59,8 +59,10 @@ jobs:
             jq -r '.rules[].domain_suffix[]?' "$f" | sed '/^\s*$/d' >> "$TMP_DOMAINS"
           done
 
-          domains_json=$(jq -R -s -c 'split("\n") | map(select(length > 0))' "$TMP_DOMAINS")
+          # 生成 JSON 数组并过滤空字符串
+          domains_json=$(jq -R -s -c 'split("\n") | map(select(length > 0 and . != ""))' "$TMP_DOMAINS")
 
+          # 写入最终 JSON
           jq -n --argjson arr "$domains_json" '
             {
               version: 2,
@@ -87,6 +89,4 @@ jobs:
             echo "No changes to commit"
           else
             git commit -m "Update foreign_domain.json (merged ADS files)"
-            # 使用默认 GITHUB_TOKEN，不指定用户名或仓库
             git push
-          fi
