@@ -10,13 +10,11 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      # 1️⃣ Checkout 当前仓库
       - name: Checkout current repo
         uses: actions/checkout@v4
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
 
-      # 2️⃣ Checkout 上游仓库 MetaCubeX/meta-rules-dat (sing branch)
       - name: Checkout MetaCubeX/meta-rules-dat (sing branch)
         uses: actions/checkout@v4
         with:
@@ -25,7 +23,6 @@ jobs:
           path: upstream
           token: ${{ secrets.GITHUB_TOKEN }}
 
-      # 3️⃣ 合并 ADS JSON 文件
       - name: Merge ADS JSON files
         shell: bash
         run: |
@@ -38,13 +35,8 @@ jobs:
 
           mkdir -p "$DST"
 
-          # 精准匹配 ads 文件名（前后必须为符号或边界）
-          mapfile -t FILES < <(
-            find "$SRC" -type f -name "*.json" \
-              | grep -Ei '(^|[^a-z0-9])ads([^a-z0-9]|$)' \
-              | sort
-          )
-
+          # 精准匹配 ads 文件名（前后为符号或边界）
+          mapfile -t FILES < <(find "$SRC" -type f -name "*.json" | grep -Ei '(^|[^a-z0-9])ads([^a-z0-9]|$)' | sort)
           echo "Found ${#FILES[@]} ADS JSON files"
 
           # 输出来源文件名
@@ -59,22 +51,13 @@ jobs:
             jq -r '.rules[].domain_suffix[]?' "$f" | sed '/^\s*$/d' >> "$TMP_DOMAINS"
           done
 
-          # 生成 JSON 数组并过滤空字符串
-          domains_json=$(jq -R -s -c 'split("\n") | map(select(length > 0 and . != ""))' "$TMP_DOMAINS")
+          domains_json=$(jq -R -s -c 'split("\n") | map(select(length>0))' "$TMP_DOMAINS")
 
           # 写入最终 JSON
-          jq -n --argjson arr "$domains_json" '
-            {
-              version: 2,
-              rules: [
-                { domain_suffix: $arr }
-              ]
-            }
-          ' > "$OUT_JSON"
+          jq -n --argjson arr "$domains_json" '{version:2,rules:[{domain_suffix:$arr}]}' > "$OUT_JSON"
 
           echo "Merged JSON written to $OUT_JSON"
 
-      # 4️⃣ Commit & Push 到 update/
       - name: Commit & Push update/
         shell: bash
         env:
@@ -84,7 +67,7 @@ jobs:
           git config --global user.name "GitHub Action"
 
           git add update/foreign_domain.json update/foreign_domain_files.txt
-          
+
           if git diff --cached --quiet; then
             echo "No changes to commit"
           else
