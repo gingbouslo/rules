@@ -3,7 +3,7 @@ name: Merge ADS JSON Rules
 on:
   workflow_dispatch:
   schedule:
-    - cron: "0 6 * * *" # 每天 6:00 UTC
+    - cron: "0 6 * * *"   # 每天 6:00 UTC 运行
 
 jobs:
   build:
@@ -12,8 +12,6 @@ jobs:
     steps:
       - name: Checkout current repo
         uses: actions/checkout@v4
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Checkout MetaCubeX/meta-rules-dat (sing branch)
         uses: actions/checkout@v4
@@ -21,7 +19,6 @@ jobs:
           repository: MetaCubeX/meta-rules-dat
           ref: sing
           path: upstream
-          token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Merge ADS JSON files
         shell: bash
@@ -29,13 +26,13 @@ jobs:
           set -euo pipefail
 
           SRC="upstream/geo/geosite"
-          DST="$GITHUB_WORKSPACE/update"
-          OUT_JSON="${DST}/foreign_domain.json"
-          OUT_LIST="${DST}/foreign_domain_files.txt"
+          DST="update"
+          OUT_JSON="${DST}/adsplus_domain.json"
+          OUT_LIST="${DST}/adsplus_domain_files.txt"
 
           mkdir -p "$DST"
 
-          # 精准匹配 ads
+          # ---- 精准匹配 ads（两侧必须为符号或边界） ----
           mapfile -t FILES < <(
             find "$SRC" -type f -name "*.json" \
               | grep -Ei '(^|[^a-z0-9])ads([^a-z0-9]|$)' \
@@ -44,44 +41,40 @@ jobs:
 
           echo "Found ${#FILES[@]} ADS JSON files"
 
-          # 输出来源文件名
+          # 写入来源文件名列表
           : > "$OUT_LIST"
           for f in "${FILES[@]}"; do
             echo "$(basename "$f")" >> "$OUT_LIST"
           done
 
-          # 合并 domain_suffix 并去掉空行/空字符串
+          # --- 合并所有的 domain_suffix ---
           TMP_DOMAINS=$(mktemp)
+
           for f in "${FILES[@]}"; do
-            jq -r '.rules[].domain_suffix[]?' "$f" | sed '/^\s*$/d' >> "$TMP_DOMAINS"
+            jq -r '.rules[].domain_suffix[]?' "$f" >> "$TMP_DOMAINS"
           done
 
-          domains_json=$(jq -R -s -c 'split("\n") | map(select(length > 0))' "$TMP_DOMAINS")
+          # 去空行，不排序不去重
+          sed -i '/^[[:space:]]*$/d' "$TMP_DOMAINS"
 
-          jq -n --argjson arr "$domains_json" '
-            {
-              version: 2,
-              rules: [
-                { domain_suffix: $arr }
-              ]
-            }
+          # --- 生成最终 JSON ---
+          jq -n --argfile domains "$TMP_DOMAINS" '
+          {
+            version: 2,
+            rules: [
+              {
+                domain_suffix: $domains
+              }
+            ]
+          }
           ' > "$OUT_JSON"
 
           echo "Merged JSON written to $OUT_JSON"
 
-      - name: Commit & Push update/
-        shell: bash
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Commit and Push update/
         run: |
           git config --global user.email "action@github.com"
           git config --global user.name "GitHub Action"
-
-          git add update/foreign_domain.json update/foreign_domain_files.txt
-          
-          if git diff --cached --quiet; then
-            echo "No changes to commit"
-          else
-            git commit -m "Update foreign_domain.json (merged ADS files)"
-            git push "https://${GITHUB_ACTOR}:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" HEAD:main
-          fi
+          git add update/adsplus_domain.json update/adsplus_domain_files.txt || true
+          git commit -m "Update adsplus_domain.json (merged)" || echo "No changes"
+          git push || echo "Nothing to push"
