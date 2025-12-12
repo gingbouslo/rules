@@ -8,45 +8,61 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    - name: Checkout current repository (A/B)
-      uses: actions/checkout@v4
-      with:
-        token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-    - name: Download Mihomo binary
-      run: |
-        wget https://github.com/MetaCubeX/mihomo/releases/download/v1.19.17/mihomo-linux-amd64-v1.19.17.gz
-        gunzip mihomo-linux-amd64-v1.19.17.gz
-        chmod +x mihomo-linux-amd64-v1.19.17
-        mv mihomo-linux-amd64-v1.19.17 mihomo
+      - name: Install mihomo
+        run: |
+          wget https://github.com/MetaCubeX/mihomo/releases/download/v1.19.17/mihomo-linux-amd64-v1.19.17.gz
+          gunzip mihomo-linux-amd64-v1.19.17.gz
+          mv mihomo-linux-amd64-v1.19.17 mihomo
+          chmod +x mihomo
+          sudo mv mihomo /usr/local/bin/mihomo
 
-    - name: Convert Mihomo Rules (*.yaml → *.mrs)
-      run: |
-        cd mihomo-rules
+      - name: Find and convert rule files
+        run: |
+          RULE_DIR="mihomo-rules"
 
-        echo "Converting *_domain.yaml → *_domain.mrs ..."
-        for file in *_domain.yaml; do
-          [ -f "$file" ] || continue
-          out="${file%.yaml}.mrs"
-          echo "Processing $file → $out"
-          ../mihomo convert-ruleset domain yaml "$file" "$out"
-        done
+          find "$RULE_DIR" -type f \( -name "*_domain.yaml" -o -name "*_domain.text" -o -name "*_ip.yaml" -o -name "*_ip.text" \) | while read FILE; do
+            BASENAME=$(basename "$FILE")
+            DIRNAME=$(dirname "$FILE")
 
-        echo "Converting *_ip.yaml → *_ip.mrs ..."
-        for file in *_ip.yaml; do
-          [ -f "$file" ] || continue
-          out="${file%.yaml}.mrs"
-          echo "Processing $file → $out"
-          ../mihomo convert-ruleset ipcidr yaml "$file" "$out"
-        done
+            # Determine type: domain or ip
+            if [[ "$BASENAME" == *_domain.* ]]; then
+              TYPE="domain"
+            elif [[ "$BASENAME" == *_ip.* ]]; then
+              TYPE="ipcidr"
+            else
+              echo "Unknown type: $FILE"
+              continue
+            fi
 
-    - name: Commit and Push changes
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      run: |
-        git config user.name "GitHub Action"
-        git config user.email "action@github.com"
+            # Determine format: yaml or text
+            EXT="${BASENAME##*.}"
+            if [[ "$EXT" == "yaml" ]]; then
+              FORMAT="yaml"
+            elif [[ "$EXT" == "text" ]]; then
+              FORMAT="text"
+            else
+              echo "Unknown extension: $FILE"
+              continue
+            fi
 
-        git add mihomo-rules/*.mrs
-        git commit -m "Update Mihomo MRS (auto-converted)" || echo "No changes."
-        git push
+            # Output
+            OUTPUT="${FILE%.*}.mrs"
+
+            echo "Converting $FILE → $OUTPUT"
+            mihomo convert-ruleset "$TYPE" "$FORMAT" "$FILE" "$OUTPUT"
+          done
+
+      - name: Commit and push changes
+        run: |
+          git config --global user.name "GitHub Action"
+          git config --global user.email "actions@github.com"
+
+          git add .
+          if git commit -m "Auto convert Mihomo rules"; then
+            git push
+          else
+            echo "No changes to commit"
+          fi
