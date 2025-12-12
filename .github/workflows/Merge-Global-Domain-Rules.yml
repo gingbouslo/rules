@@ -1,4 +1,4 @@
-name: Merge GFWPlus Rules
+name: 合并!cn域名
 
 on:
   workflow_dispatch:
@@ -20,28 +20,24 @@ jobs:
           ref: meta
           path: upstream
 
-      - name: Merge GFWPlus YAML files
+      - name: Merge foreign YAML rule files (fixed)
         shell: bash
         run: |
           set -euo pipefail
 
           SRC="upstream/geo/geosite"
           DST="update"
-          OUT="${DST}/gfwplus_domain.yaml"
+          OUT_YAML="${DST}/foreign_domain.yaml"
+          OUT_LIST="${DST}/foreign_domain_files.txt"
 
-          echo "Merging files into ${OUT}"
+          echo "Ensure dst exists: $DST"
           mkdir -p "$DST"
 
-          # 输出头部
-          echo "payload:" > "$OUT"
-          echo "# merged gfwplus domain rules" >> "$OUT"
-          echo >> "$OUT"
-
-          # 完整匹配列表（全部带引号）
+          # exact list
           EXACT_LIST=(
             "gfw.yaml" "google.yaml" "youtube.yaml" "tiktok.yaml" "onedrive.yaml" "github.yaml"
             "telegram.yaml" "facebook.yaml" "twitter.yaml" "meta.yaml" "instagram.yaml" "paypal.yaml"
-            "reddit.yaml" "netflix.yaml" "discord.yaml"
+            "reddit.yaml" "netflix.yaml" "discord.yaml" "google-gemini.yaml"
 
             "steam.yaml" "steamcommunity.yaml" "steampowered.yaml" "epic.yaml" "epicgames.yaml"
             "origin.yaml" "ea.yaml" "uplay.yaml" "ubisoft.yaml" "battlenet.yaml" "blizzard.yaml"
@@ -66,45 +62,52 @@ jobs:
             "midjourney.yaml" "civitai.yaml" "replicate.yaml" "perplexity.yaml"
           )
 
-          # 收集需要合并的文件
-          mapfile -t FILES < <(
-            find "$SRC" -type f -name "*.yaml" | while read -r file; do
-              base=$(basename "$file")
-
-              # 完整匹配
-              for name in "${EXACT_LIST[@]}"; do
-                [[ "$base" == "$name" ]] && echo "$file"
-              done
-
-              # !cn 且不含 ads
-              if [[ "$base" =~ \!cn ]] && [[ ! "$base" =~ ads ]]; then
-                echo "$file"
+          # collect files: exact matches OR contains '!cn' AND not contains 'ads'
+          tmpfiles=$(mktemp)
+          while IFS= read -r -d '' file; do
+            base=$(basename "$file")
+            add=0
+            for name in "${EXACT_LIST[@]}"; do
+              if [[ "$base" == "$name" ]]; then
+                add=1; break
               fi
-            done | sort -u
-          )
+            done
+            if [[ $add -eq 0 ]]; then
+              if [[ "$base" == *"!cn"* && "$base" != *"ads"* ]]; then
+                add=1
+              fi
+            fi
+            if [[ $add -eq 1 ]]; then
+              printf '%s\0' "$file" >> "$tmpfiles"
+            fi
+          done < <(find "$SRC" -type f -name "*.yaml" -print0)
 
-          echo "# merged from files:" >> "$OUT"
+          # dedupe
+          mapfile -t FILES < <(tr '\0' '\n' < "$tmpfiles" | sort -u)
+
+          # write file list separately
+          : > "$OUT_LIST"
           for f in "${FILES[@]}"; do
-            echo "# - $(basename "$f")" >> "$OUT"
+            echo "$(basename "$f")" >> "$OUT_LIST"
           done
-          echo >> "$OUT"
+
+          # construct merged YAML
+          : > "$OUT_YAML"
+          echo "payload:" >> "$OUT_YAML"
 
           FIRST=1
           for f in "${FILES[@]}"; do
-            echo "Processing $f"
-            if [[ $FIRST -eq 1 ]]; then
-              grep -vE '^\s*$' "$f" >> "$OUT"
-              FIRST=0
-            else
-              grep -vE '^\s*$|^payload:' "$f" >> "$OUT"
-            fi
+            sed -n '/^[[:space:]]*#/d; /^[[:space:]]*$/d; /^[[:space:]]*payload:/d; p' "$f" >> "$OUT_YAML"
+            FIRST=0
           done
 
-      - name: Commit changes
+          echo "Merged into: $OUT_YAML"
+          echo "List: $OUT_LIST"
+
+      - name: Commit and Push update/
         run: |
           git config --global user.email "action@github.com"
           git config --global user.name "GitHub Action"
-
-          git add update/gfwplus_domain.yaml
-          git commit -m "Update gfwplus_domain.yaml" || echo "No changes"
-          git push
+          git add update/foreign_domain.yaml update/foreign_domain_files.txt || true
+          git commit -m "Update foreign_domain.yaml (merged)" || echo "No changes to commit"
+          git push || echo "Push failed or nothing to push"
