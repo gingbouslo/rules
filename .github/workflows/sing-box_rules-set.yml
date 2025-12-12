@@ -1,0 +1,52 @@
+name: Sing-box_Rules-set
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 0 * * *'
+
+jobs:
+  build-and-push-ruleset:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout current repo (A/B)
+      uses: actions/checkout@v4
+      with:
+        token: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: List files
+      run: |
+        echo "Current repo: $GITHUB_REPOSITORY"
+        ls -al
+
+    - name: Read Sing-Box version
+      run: |
+        echo "SING_BOX_VERSION=$(cat singbox-rules/version.txt)" >> $GITHUB_ENV
+
+    - name: Download sing-box
+      run: |
+        wget https://github.com/SagerNet/sing-box/releases/download/v${{ env.SING_BOX_VERSION }}/sing-box-${{ env.SING_BOX_VERSION }}-linux-amd64.tar.gz
+        tar -xzf sing-box-${{ env.SING_BOX_VERSION }}-linux-amd64.tar.gz
+        echo "$PWD/sing-box-${{ env.SING_BOX_VERSION }}-linux-amd64" >> $GITHUB_PATH
+
+    - name: Compile JSON → SRS
+      run: |
+        cd singbox-rules
+        for file in *.json; do
+          [ -f "$file" ] || continue
+          echo "Compiling $file → ${file%.json}.srs"
+          ../sing-box-${{ env.SING_BOX_VERSION }}-linux-amd64/sing-box rule-set compile \
+            --output "${file%.json}.srs" "$file"
+        done
+
+    - name: Commit and Push
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: |
+        git config user.name "GitHub Action"
+        git config user.email "action@github.com"
+
+        git add singbox-rules/*.srs
+        git commit -m "Update SRS (Auto compiled)" || echo "No changes."
+        git push origin main
