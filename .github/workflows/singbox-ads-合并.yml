@@ -1,14 +1,12 @@
 name: Merge ADS JSON Rules
-
 on:
   workflow_dispatch:
   schedule:
-    - cron: "0 6 * * *"
+    - cron: "0 6 * * *"   # 每天 UTC 6:00（北京时间 14:00）自动运行
 
 jobs:
   build:
     runs-on: ubuntu-latest
-
     steps:
       - name: Checkout current repo
         uses: actions/checkout@v4
@@ -20,7 +18,7 @@ jobs:
           ref: sing
           path: upstream
 
-      - name: Merge ADS JSON files
+      - name: Merge ADS JSON files（终极干净版）
         shell: bash
         run: |
           set -euo pipefail
@@ -32,7 +30,7 @@ jobs:
 
           mkdir -p "$DST"
 
-          # 精准匹配 ads（两侧必须为符号或边界）
+          # 精准匹配文件名中含有 ads（前后必须是非字母数字边界）
           mapfile -t FILES < <(
             find "$SRC" -type f -name "*.json" \
               | grep -Ei '(^|[^a-z0-9])ads([^a-z0-9]|$)' \
@@ -41,41 +39,51 @@ jobs:
 
           echo "Found ${#FILES[@]} ADS JSON files"
 
-          # 写入来源文件名列表
+          # 记录本次合并了哪些源文件
           : > "$OUT_LIST"
           for f in "${FILES[@]}"; do
             echo "$(basename "$f")" >> "$OUT_LIST"
           done
 
-          # --- 合并所有 domain_suffix ---
+          # ---------- 彻底干净地合并 domain_suffix ----------
           TMP_DOMAINS=$(mktemp)
+          : > "$TMP_DOMAINS"
 
           for f in "${FILES[@]}"; do
-            jq -r '.rules[].domain_suffix[]?' "$f" >> "$TMP_DOMAINS"
+            # .domain_suffix[]? 防止字段不存在报错
+            # // empty + grep 过滤掉 null、空行、纯空白
+            jq -r '.rules[].domain_suffix[]? // empty' "$f" 2>/dev/null \
+              | grep -vE '^(|\s*)$' \
+              >> "$TMP_DOMAINS"
           done
 
-          # 去空行
-          sed -i '/^[[:space:]]*$/d' "$TMP_DOMAINS"
-
-          # --- 生成最终 JSON ---
-          domains_json=$(jq -R -s -c 'split("\n")' "$TMP_DOMAINS")
-          jq -n --argjson arr "$domains_json" '
-            {
+          # 生成完美、无空元素、无 null 的 geosite JSON
+          jq -R 'select(length > 0)' "$TMP_DOMAINS" | \
+            jq -s '{
               version: 2,
               rules: [
                 {
-                  domain_suffix: $arr
+                  domain_suffix: .
                 }
               ]
-            }
-          ' > "$OUT_JSON"
+            }' > "$OUT_JSON"
 
-          echo "Merged JSON written to $OUT_JSON"
+          # 可选：顺手去重并排序（体积再小一点，加载更快）
+          # 取消下面两行注释即可启用去重排序
+          # jq -r '.rules[0].domain_suffix[]' "$OUT_JSON" | sort -u | \
+          #   jq -R 'select(length>0)' | jq -s '{version:2, rules:[{domain_suffix:.}]}' > "$OUT_JSON"
+
+          echo "Merged & cleaned JSON written to $OUT_JSON"
+          echo "Total domains: $(jq -r '.rules[0].domain_suffix | length' "$OUT_JSON")"
 
       - name: Commit and Push update/
         run: |
           git config --global user.email "action@github.com"
           git config --global user.name "GitHub Action"
           git add update/adsplus_domain.json update/adsplus_domain_files.txt || true
-          git commit -m "Update adsplus_domain.json (merged)" || echo "No changes"
-          git push || echo "Nothing to push"
+          if git diff --quiet HEAD; then
+            echo "No changes detected"
+          else
+            git commit -m "Auto update adsplus_domain.json $(date -u '+%Y-%m-%d %H:%M UTC')"
+            git push
+          fi
