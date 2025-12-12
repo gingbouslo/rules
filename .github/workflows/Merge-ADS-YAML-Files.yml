@@ -1,4 +1,4 @@
-name: Merge ADS YAML Files (Scheduled Daily)
+name: 合并广告域名
 
 on:
   workflow_dispatch:
