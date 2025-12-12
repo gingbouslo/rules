@@ -1,4 +1,4 @@
-name: Merge CN YAML Files (Fast)
+name: Merge CN YAML Files (Preserve Original Format)
 
 on:
   workflow_dispatch:
@@ -23,7 +23,7 @@ jobs:
           mkdir -p "$GITHUB_WORKSPACE/temp_geo"
           cp -r geo/geosite/* "$GITHUB_WORKSPACE/temp_geo/"
 
-      - name: Merge CN YAML files efficiently
+      - name: Merge CN YAML files (original format) and list files
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -32,10 +32,11 @@ jobs:
           SRC_DIR="temp_geo"
           DST_DIR="update"
           OUTPUT_FILE="$DST_DIR/merged_cn.yaml"
+          FILE_LIST="$DST_DIR/merged_files.txt"
 
           mkdir -p "$DST_DIR"
 
-          # 找到符合条件的 CN 文件并按路径排序
+          # 查找符合条件的 CN 文件
           mapfile -t FILES < <(
             find "$SRC_DIR" -type f -name "*.yaml" \
               | grep -E '(^|[^a-zA-Z0-9])cn([^a-zA-Z0-9]|$)|(^|/)cn\.yaml$' \
@@ -48,49 +49,36 @@ jobs:
             exit 0
           fi
 
-          echo "Merging ${#FILES[@]} CN YAML files efficiently..."
+          echo "Merging ${#FILES[@]} CN YAML files..."
+          echo "Merged files:" > "$FILE_LIST"
 
           FIRST_FILE="${FILES[0]}"
           OTHER_FILES=("${FILES[@]:1}")
 
+          # 记录所有被合并文件
+          for f in "${FILES[@]}"; do
+            echo "$f" >> "$FILE_LIST"
+          done
+
           # 第一个文件保留 payload:
-          awk '
-            /^[[:space:]]*payload:/ {print; next}
-            /^[[:space:]]*$/ {next}
-            {
-              line=$0
-              gsub(/^[[:space:]]*-\s*/,"",line)
-              gsub(/["'\''"]/,"",line)
-              gsub(/^[^a-zA-Z0-9+]+|[^a-zA-Z0-9]+$/,"",line)
-              print "  - +."line
-            }
-          ' "$FIRST_FILE" > "$OUTPUT_FILE"
+          grep -v '^[[:space:]]*$' "$FIRST_FILE" > "$OUTPUT_FILE"
 
           # 其余文件去掉 payload: 直接追加
-          if [[ ${#OTHER_FILES[@]} -gt 0 ]]; then
-            awk '
-              /^[[:space:]]*payload:/ {next}
-              /^[[:space:]]*$/ {next}
-              {
-                line=$0
-                gsub(/^[[:space:]]*-\s*/,"",line)
-                gsub(/["'\''"]/,"",line)
-                gsub(/^[^a-zA-Z0-9+]+|[^a-zA-Z0-9]+$/,"",line)
-                print "  - +."line
-              }
-            ' "${OTHER_FILES[@]}" >> "$OUTPUT_FILE"
-          fi
+          for f in "${OTHER_FILES[@]}"; do
+            grep -v '^[[:space:]]*$' "$f" | grep -v '^[[:space:]]*payload:' >> "$OUTPUT_FILE"
+          done
 
           echo "Merged CN YAML saved to $OUTPUT_FILE"
+          echo "List of merged files saved to $FILE_LIST"
 
-      - name: Commit & Push merged file
+      - name: Commit & Push merged files
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           git config --global user.name "GitHub Action"
           git config --global user.email "actions@github.com"
-          git add "update/merged_cn.yaml"
-          if git commit -m "Merge CN YAML files from MetaCubeX/meta-rules-dat efficiently"; then
+          git add "update/merged_cn.yaml" "update/merged_files.txt"
+          if git commit -m "Merge CN YAML files preserving original format"; then
             git push origin HEAD:main
           else
             echo "No changes to commit"
