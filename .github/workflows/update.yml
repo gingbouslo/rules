@@ -10,16 +10,11 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Merge CN YAML files
+      - name: Merge and format CN YAML files
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
-
-          # 自动获取用户名和仓库名
-          REPO_FULL="${GITHUB_REPOSITORY}"  # e.g., username/repo
-          USERNAME="${REPO_FULL%%/*}"
-          REPO="${REPO_FULL##*/}"
 
           SRC_DIR="geo/geosite"
           DST_DIR="update"
@@ -41,23 +36,43 @@ jobs:
 
           echo "Merging ${#FILES[@]} CN YAML files..."
 
-          # 初始化输出文件
-          first_file=true
-          : > "$OUTPUT_FILE"
+          ALL_DOMAINS=()
+
+          clean_domain() {
+            local d="$1"
+            # 去掉空格、引号、首尾多余符号
+            d="${d//\"/}"
+            d="${d//\'/}"
+            d="$(echo "$d" | sed -E 's/^[^a-zA-Z0-9+]*//; s/[^a-zA-Z0-9]*$//')"
+            printf "%s" "$d"
+          }
 
           for f in "${FILES[@]}"; do
-            if $first_file; then
-              # 保留第一个文件的 payload:
-              cat "$f" >> "$OUTPUT_FILE"
-              first_file=false
-            else
-              # 去掉 payload: 只保留 - ... 条目
-              grep -E '^\s*-' "$f" >> "$OUTPUT_FILE"
-            fi
+            # 提取所有可能的域名行，忽略空行和 payload:
+            while IFS= read -r line; do
+              # 去掉前后空格
+              line="${line#"${line%%[![:space:]]*}"}"
+              line="${line%"${line##*[![:space:]]}"}"
+              # 忽略空行和 payload:
+              [[ -z "$line" || "$line" == "payload:" ]] && continue
+              # 如果以 - 开头去掉 -
+              [[ "$line" =~ ^- ]] && line="${line#- }"
+              # 清洗域名
+              d="$(clean_domain "$line")"
+              [[ -n "$d" ]] && ALL_DOMAINS+=("$d")
+            done < "$f"
           done
 
-          # 去重（可选）
-          awk '!seen[$0]++' "$OUTPUT_FILE" > "${OUTPUT_FILE}.tmp" && mv "${OUTPUT_FILE}.tmp" "$OUTPUT_FILE"
+          # 去重并排序
+          mapfile -t SORTED_DOMAINS < <(printf '%s\n' "${ALL_DOMAINS[@]}" | sort -u)
+
+          # 写入输出文件，标准 YAML 格式，每行以 - +.开头
+          {
+            echo "payload:"
+            for d in "${SORTED_DOMAINS[@]}"; do
+              echo "  - +.$d"
+            done
+          } > "$OUTPUT_FILE"
 
           echo "Merged CN YAML saved to $OUTPUT_FILE"
 
@@ -68,7 +83,7 @@ jobs:
           git config --global user.name "GitHub Action"
           git config --global user.email "actions@github.com"
           git add "$DST_DIR/merged_cn.yaml"
-          if git commit -m "Merge CN YAML files"; then
+          if git commit -m "Merge and sort CN YAML files"; then
             git push origin HEAD:main
           else
             echo "No changes to commit"
