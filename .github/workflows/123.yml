@@ -1,0 +1,77 @@
+name: YAML <-> JSON Rule Converter
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "选择转换方向: yaml2json 或 json2yaml"
+        required: true
+        type: choice
+        options:
+          - yaml2json
+          - json2yaml
+
+jobs:
+  convert:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install yq & jq
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y jq
+          sudo wget -qO /usr/bin/yq https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64
+          sudo chmod +x /usr/bin/yq
+
+      - name: Run yaml → json conversion
+        if: ${{ github.event.inputs.mode == 'yaml2json' }}
+        run: |
+          cd change
+
+          for file in *_domain.yaml; do
+            [ -f "$file" ] || continue
+            out="${file%.yaml}.json"
+
+            echo "Converting $file → $out"
+
+            # 获取 domain 列表，去掉 "+."
+            jq_list=$(yq '.payload[]' "$file" | sed 's/^\+\.\(.*\)$/\1/' | jq -R . | jq -s .)
+
+            jq -n \
+              --argjson arr "$jq_list" \
+              '{version: 2, rules: [{domain_suffix: $arr}]}' > "$out"
+          done
+
+      - name: Run json → yaml conversion
+        if: ${{ github.event.inputs.mode == 'json2yaml' }}
+        run: |
+          cd change
+
+          for file in *_domain.json; do
+            [ -f "$file" ] || continue
+            out="${file%.json}.yaml"
+
+            echo "Converting $file → $out"
+
+            domains=$(jq -r '.rules[0].domain_suffix[]' "$file")
+
+            echo "payload:" > "$out"
+            for d in $domains; do
+              echo "  - +.$d" >> "$out"
+            done
+          done
+
+      - name: Commit and Push changes
+        run: |
+          git config --global user.name "GitHub Action"
+          git config --global user.email "actions@github.com"
+
+          git add change/*
+          if git commit -m "Auto converted ruleset: ${{ github.event.inputs.mode }}"; then
+            git push
+          else
+            echo "No changes to commit"
+          fi
