@@ -1,0 +1,75 @@
+name: Merge CN YAML Files
+
+on:
+  workflow_dispatch:
+
+jobs:
+  merge-cn:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Merge CN YAML files
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          # 自动获取用户名和仓库名
+          REPO_FULL="${GITHUB_REPOSITORY}"  # e.g., username/repo
+          USERNAME="${REPO_FULL%%/*}"
+          REPO="${REPO_FULL##*/}"
+
+          SRC_DIR="geo/geosite"
+          DST_DIR="update"
+          OUTPUT_FILE="$DST_DIR/merged_cn.yaml"
+
+          mkdir -p "$DST_DIR"
+
+          # 查找符合条件的 CN YAML 文件
+          mapfile -t FILES < <(
+            find "$SRC_DIR" -type f -name "*.yaml" \
+              | grep -E '(^|[^a-zA-Z0-9])cn([^a-zA-Z0-9]|$)|(^|/)cn\.yaml$' \
+              | grep -Ev '(!cn|ads)'
+          )
+
+          if [[ ${#FILES[@]} -eq 0 ]]; then
+            echo "No CN YAML files found."
+            exit 0
+          fi
+
+          echo "Merging ${#FILES[@]} CN YAML files..."
+
+          # 初始化输出文件
+          first_file=true
+          : > "$OUTPUT_FILE"
+
+          for f in "${FILES[@]}"; do
+            if $first_file; then
+              # 保留第一个文件的 payload:
+              cat "$f" >> "$OUTPUT_FILE"
+              first_file=false
+            else
+              # 去掉 payload: 只保留 - ... 条目
+              grep -E '^\s*-' "$f" >> "$OUTPUT_FILE"
+            fi
+          done
+
+          # 去重（可选）
+          awk '!seen[$0]++' "$OUTPUT_FILE" > "${OUTPUT_FILE}.tmp" && mv "${OUTPUT_FILE}.tmp" "$OUTPUT_FILE"
+
+          echo "Merged CN YAML saved to $OUTPUT_FILE"
+
+      - name: Commit & Push merged file
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          git config --global user.name "GitHub Action"
+          git config --global user.email "actions@github.com"
+          git add "$DST_DIR/merged_cn.yaml"
+          if git commit -m "Merge CN YAML files"; then
+            git push origin HEAD:main
+          else
+            echo "No changes to commit"
+          fi
