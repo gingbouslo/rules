@@ -1,4 +1,4 @@
-name: Merge CN YAML Files
+name: Merge CN YAML Files (Fast)
 
 on:
   workflow_dispatch:
@@ -10,11 +10,6 @@ jobs:
       - name: Checkout current repository
         uses: actions/checkout@v4
 
-      - name: Install git sparse-checkout tools
-        run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq git
-
       - name: Clone remote meta-rules-dat repo (sparse checkout geo/geosite)
         run: |
           REMOTE_REPO="https://github.com/MetaCubeX/meta-rules-dat.git"
@@ -25,27 +20,27 @@ jobs:
           cd $TEMP_DIR
           git sparse-checkout set geo/geosite
 
-          # 将文件复制到当前工作目录的临时源目录
           mkdir -p "$GITHUB_WORKSPACE/temp_geo"
           cp -r geo/geosite/* "$GITHUB_WORKSPACE/temp_geo/"
 
-      - name: Merge and format CN YAML files
+      - name: Merge CN YAML files efficiently
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
 
-          SRC_DIR="temp_geo"       # 从上一步复制的临时目录
+          SRC_DIR="temp_geo"
           DST_DIR="update"
           OUTPUT_FILE="$DST_DIR/merged_cn.yaml"
 
           mkdir -p "$DST_DIR"
 
-          # 查找符合条件的 CN YAML 文件
+          # 找到符合条件的 CN 文件并按路径排序
           mapfile -t FILES < <(
             find "$SRC_DIR" -type f -name "*.yaml" \
               | grep -E '(^|[^a-zA-Z0-9])cn([^a-zA-Z0-9]|$)|(^|/)cn\.yaml$' \
-              | grep -Ev '(!cn|ads)'
+              | grep -Ev '(!cn|ads)' \
+              | sort
           )
 
           if [[ ${#FILES[@]} -eq 0 ]]; then
@@ -53,37 +48,38 @@ jobs:
             exit 0
           fi
 
-          echo "Merging ${#FILES[@]} CN YAML files..."
+          echo "Merging ${#FILES[@]} CN YAML files efficiently..."
 
-          ALL_DOMAINS=()
+          FIRST_FILE="${FILES[0]}"
+          OTHER_FILES=("${FILES[@]:1}")
 
-          clean_domain() {
-            local d="$1"
-            d="${d//\"/}"
-            d="${d//\'/}"
-            d="$(echo "$d" | sed -E 's/^[^a-zA-Z0-9+]*//; s/[^a-zA-Z0-9]*$//')"
-            printf "%s" "$d"
-          }
+          # 第一个文件保留 payload:
+          awk '
+            /^[[:space:]]*payload:/ {print; next}
+            /^[[:space:]]*$/ {next}
+            {
+              line=$0
+              gsub(/^[[:space:]]*-\s*/,"",line)
+              gsub(/["'\''"]/,"",line)
+              gsub(/^[^a-zA-Z0-9+]+|[^a-zA-Z0-9]+$/,"",line)
+              print "  - +."line
+            }
+          ' "$FIRST_FILE" > "$OUTPUT_FILE"
 
-          for f in "${FILES[@]}"; do
-            while IFS= read -r line; do
-              line="${line#"${line%%[![:space:]]*}"}"
-              line="${line%"${line##*[![:space:]]}"}"
-              [[ -z "$line" || "$line" == "payload:" ]] && continue
-              [[ "$line" =~ ^- ]] && line="${line#- }"
-              d="$(clean_domain "$line")"
-              [[ -n "$d" ]] && ALL_DOMAINS+=("$d")
-            done < "$f"
-          done
-
-          mapfile -t SORTED_DOMAINS < <(printf '%s\n' "${ALL_DOMAINS[@]}" | sort -u)
-
-          {
-            echo "payload:"
-            for d in "${SORTED_DOMAINS[@]}"; do
-              echo "  - +.$d"
-            done
-          } > "$OUTPUT_FILE"
+          # 其余文件去掉 payload: 直接追加
+          if [[ ${#OTHER_FILES[@]} -gt 0 ]]; then
+            awk '
+              /^[[:space:]]*payload:/ {next}
+              /^[[:space:]]*$/ {next}
+              {
+                line=$0
+                gsub(/^[[:space:]]*-\s*/,"",line)
+                gsub(/["'\''"]/,"",line)
+                gsub(/^[^a-zA-Z0-9+]+|[^a-zA-Z0-9]+$/,"",line)
+                print "  - +."line
+              }
+            ' "${OTHER_FILES[@]}" >> "$OUTPUT_FILE"
+          fi
 
           echo "Merged CN YAML saved to $OUTPUT_FILE"
 
@@ -94,7 +90,7 @@ jobs:
           git config --global user.name "GitHub Action"
           git config --global user.email "actions@github.com"
           git add "update/merged_cn.yaml"
-          if git commit -m "Merge and sort CN YAML files from MetaCubeX/meta-rules-dat"; then
+          if git commit -m "Merge CN YAML files from MetaCubeX/meta-rules-dat efficiently"; then
             git push origin HEAD:main
           else
             echo "No changes to commit"
