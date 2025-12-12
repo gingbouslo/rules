@@ -1,0 +1,88 @@
+name: Merge ADS YAML Files (Scheduled Daily)
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 22 * * *'  # 每天 UTC 22:00 = 北京时间 6:00
+
+jobs:
+  merge-ads:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout current repository
+        uses: actions/checkout@v4
+
+      - name: Clone remote meta-rules-dat repo (sparse checkout geo/geosite)
+        run: |
+          REMOTE_REPO="https://github.com/MetaCubeX/meta-rules-dat.git"
+          REMOTE_BRANCH="meta"
+          TEMP_DIR=$(mktemp -d)
+
+          git clone --filter=blob:none --sparse --branch $REMOTE_BRANCH $REMOTE_REPO $TEMP_DIR
+          cd $TEMP_DIR
+          git sparse-checkout set geo/geosite
+
+          mkdir -p "$GITHUB_WORKSPACE/temp_geo"
+          cp -r geo/geosite/* "$GITHUB_WORKSPACE/temp_geo/"
+
+      - name: Merge ADS YAML files (preserve original format)
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          SRC_DIR="temp_geo"
+          DST_DIR="update"
+
+          OUTPUT_FILE="$DST_DIR/adsplus_domain.yaml"
+          FILE_LIST="$DST_DIR/merged_ads_files.txt"
+
+          mkdir -p "$DST_DIR"
+
+          # 查找包含 ads 的 YAML 文件，但排除 !ads
+          mapfile -t FILES < <(
+            find "$SRC_DIR" -type f -name "*.yaml" \
+              | grep -Ei '(^|[^a-zA-Z0-9])ads([^a-zA-Z0-9]|$)|(^|/)ads\.yaml$' \
+              | grep -Ev '!ads' \
+              | sort
+          )
+
+          if [[ ${#FILES[@]} -eq 0 ]]; then
+            echo "No ADS YAML files found."
+            exit 0
+          fi
+
+          # 输出来源文件列表
+          echo "Merged ADS files:" > "$FILE_LIST"
+          for f in "${FILES[@]}"; do
+            echo "$f" >> "$FILE_LIST"
+          done
+
+          FIRST_FILE="${FILES[0]}"
+          OTHER_FILES=("${FILES[@]:1}")
+
+          # 第一个文件：保留 payload:，去掉空行
+          awk 'NF{print}' "$FIRST_FILE" > "$OUTPUT_FILE"
+
+          # 其余文件：去掉 payload:、空行，但保持所有条目格式不变
+          if [[ ${#OTHER_FILES[@]} -gt 0 ]]; then
+            for f in "${OTHER_FILES[@]}"; do
+              awk 'NF && $0 !~ /^[[:space:]]*payload:/{print}' "$f" >> "$OUTPUT_FILE"
+            done
+          fi
+
+          echo "Merged ADS YAML saved to $OUTPUT_FILE"
+          echo "List of merged ADS files saved to $FILE_LIST"
+
+      - name: Commit & Push merged files
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          git config --global user.name "GitHub Action"
+          git config --global user.email "actions@github.com"
+          git add "update/adsplus_domain.yaml" "update/merged_ads_files.txt"
+          if git commit -m "Update adsplus_domain.yaml (Merged ADS YAML files)"; then
+            git push origin HEAD:main
+          else
+            echo "No changes to commit"
+          fi
