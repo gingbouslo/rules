@@ -1,0 +1,80 @@
+name: singbox-ads-合并
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 6 * * *"   # 每天 6:00 UTC 运行
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout current repo
+        uses: actions/checkout@v4
+
+      - name: Checkout MetaCubeX/meta-rules-dat (sing branch)
+        uses: actions/checkout@v4
+        with:
+          repository: MetaCubeX/meta-rules-dat
+          ref: sing
+          path: upstream
+
+      - name: Merge ADS JSON files
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          SRC="upstream/geo/geosite"
+          DST="update"
+          OUT_JSON="${DST}/adsplus_domain.json"
+          OUT_LIST="${DST}/adsplus_domain_files.txt"
+
+          mkdir -p "$DST"
+
+          # ---- 精准匹配 ads（两侧必须为符号或边界） ----
+          mapfile -t FILES < <(
+            find "$SRC" -type f -name "*.json" \
+              | grep -Ei '(^|[^a-z0-9])ads([^a-z0-9]|$)' \
+              | sort
+          )
+
+          echo "Found ${#FILES[@]} ADS JSON files"
+
+          # 写入来源文件名列表
+          : > "$OUT_LIST"
+          for f in "${FILES[@]}"; do
+            echo "$(basename "$f")" >> "$OUT_LIST"
+          done
+
+          # --- 合并所有的 domain_suffix ---
+          TMP_DOMAINS=$(mktemp)
+
+          for f in "${FILES[@]}"; do
+            jq -r '.rules[].domain_suffix[]?' "$f" >> "$TMP_DOMAINS"
+          done
+
+          # 去空行，不排序不去重
+          sed -i '/^[[:space:]]*$/d' "$TMP_DOMAINS"
+
+          # --- 生成最终 JSON ---
+          jq -n --argfile domains "$TMP_DOMAINS" '
+          {
+            version: 2,
+            rules: [
+              {
+                domain_suffix: $domains
+              }
+            ]
+          }
+          ' > "$OUT_JSON"
+
+          echo "Merged JSON written to $OUT_JSON"
+
+      - name: Commit and Push update/
+        run: |
+          git config --global user.email "action@github.com"
+          git config --global user.name "GitHub Action"
+          git add update/adsplus_domain.json update/adsplus_domain_files.txt || true
+          git commit -m "Update adsplus_domain.json (merged)" || echo "No changes"
+          git push || echo "Nothing to push"
