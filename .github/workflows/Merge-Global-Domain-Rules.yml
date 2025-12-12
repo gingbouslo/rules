@@ -59,7 +59,7 @@ jobs:
             youporn.yaml redtube.yaml spankbang.yaml rule34.yaml
 
             openai.yaml anthropic.yaml novelai.yaml huggingface.yaml stability.yaml
-            midjourney.yaml civitai.yaml replicate.yaml perplexity.yaml
+            midjourney.yaml civitai.yaml replicate.yaml perplexity.yaml google-gemini.yaml
           )
 
           echo "payload:" > "$OUTFILE"
@@ -95,12 +95,13 @@ jobs:
             sed '/^payload:/d;/^[[:space:]]*$/d' "$file" >> "$OUTFILE"
           done
 
-      - name: Commit and Push
+      - name: Commit and Push changes
         run: |
-          cd update
+          cd update   # 必须进入 update，否则会推送到主目录！
+
           git config --global user.email "action@github.com"
           git config --global user.name  "GitHub Action"
 
           git add geosite_global.yaml geosite_global_files.txt || true
-          git commit -m "Update geosite_global.yaml (global merge)" || true
-          git push || true
+          git commit -m "Update geosite_global.yaml (global merge)" || exit 0
+          git push origin HEAD:main
