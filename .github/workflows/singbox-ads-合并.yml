@@ -2,7 +2,7 @@ name: Merge ADS JSON Rules
 on:
   workflow_dispatch:
   schedule:
-    - cron: "0 6 * * *"   # 每天 UTC 6:00（北京时间 14:00）自动运行
+    - cron: "0 6 * * *"
 
 jobs:
   build:
@@ -18,7 +18,7 @@ jobs:
           ref: sing
           path: upstream
 
-      - name: Merge ADS JSON files（终极干净版）
+      - name: Merge ADS JSON files（绝对稳版）
         shell: bash
         run: |
           set -euo pipefail
@@ -30,59 +30,63 @@ jobs:
 
           mkdir -p "$DST"
 
-          # 精准匹配文件名中含有 ads（前后必须是非字母数字边界）
+          # 精准匹配文件名含 ads（前后边界）
           mapfile -t FILES < <(
-            find "$SRC" -type f -name "*.json" \
+            find "$SRC" -type f -name "*.json" 2>/dev/null \
               | grep -Ei '(^|[^a-z0-9])ads([^a-z0-9]|$)' \
               | sort
           )
 
           echo "Found ${#FILES[@]} ADS JSON files"
 
-          # 记录本次合并了哪些源文件
+          # 记录来源文件
           : > "$OUT_LIST"
           for f in "${FILES[@]}"; do
             echo "$(basename "$f")" >> "$OUT_LIST"
           done
 
-          # ---------- 彻底干净地合并 domain_suffix ----------
+          # ========== 关键修复点：超级容错合并 ==========
           TMP_DOMAINS=$(mktemp)
           : > "$TMP_DOMAINS"
 
           for f in "${FILES[@]}"; do
-            # .domain_suffix[]? 防止字段不存在报错
-            # // empty + grep 过滤掉 null、空行、纯空白
-            jq -r '.rules[].domain_suffix[]? // empty' "$f" 2>/dev/null \
-              | grep -vE '^(|\s*)$' \
-              >> "$TMP_DOMAINS"
+            # 彻底容错读取：
+            # 1. 即使文件是空、损坏、没有 rules 字段也不会报错
+            # 2. 只输出合法的非空域名
+            jq -r '
+              .rules // [] 
+              | .[] 
+              | .domain_suffix // [] 
+              | .[] 
+              | select(type == "string" and length > 0)
+            ' "$f" 2>/dev/null || true >> "$TMP_DOMAINS"
           done
 
-          # 生成完美、无空元素、无 null 的 geosite JSON
-          jq -R 'select(length > 0)' "$TMP_DOMAINS" | \
-            jq -s '{
+          # 再次保险过滤（防止极少数上游文件里出现奇怪字符）
+          grep -vE '^(|\s*#.*)$' "$TMP_DOMAINS" | grep '\.' > "${TMP_DOMAINS}.clean"
+          mv "${TMP_DOMAINS}.clean" "$TMP_DOMAINS"
+
+          # 生成完美 geosite JSON
+          < "$TMP_DOMAINS" jq -R 'select(length>0)' | jq -s '
+            {
               version: 2,
               rules: [
                 {
                   domain_suffix: .
                 }
               ]
-            }' > "$OUT_JSON"
+            }
+          ' > "$OUT_JSON"
 
-          # 可选：顺手去重并排序（体积再小一点，加载更快）
-          # 取消下面两行注释即可启用去重排序
-          # jq -r '.rules[0].domain_suffix[]' "$OUT_JSON" | sort -u | \
-          #   jq -R 'select(length>0)' | jq -s '{version:2, rules:[{domain_suffix:.}]}' > "$OUT_JSON"
+          echo "Success! Merged $(wc -l < "$TMP_DOMAINS") domains → $OUT_JSON"
 
-          echo "Merged & cleaned JSON written to $OUT_JSON"
-          echo "Total domains: $(jq -r '.rules[0].domain_suffix | length' "$OUT_JSON")"
-
-      - name: Commit and Push update/
+      - name: Commit and Push
         run: |
           git config --global user.email "action@github.com"
           git config --global user.name "GitHub Action"
           git add update/adsplus_domain.json update/adsplus_domain_files.txt || true
-          if git diff --quiet HEAD; then
-            echo "No changes detected"
+          if git diff --cached --quiet; then
+            echo "No changes to commit"
           else
             git commit -m "Auto update adsplus_domain.json $(date -u '+%Y-%m-%d %H:%M UTC')"
             git push
