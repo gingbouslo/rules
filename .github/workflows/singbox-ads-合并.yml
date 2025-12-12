@@ -3,16 +3,18 @@ name: Merge ADS JSON Rules
 on:
   workflow_dispatch:
   schedule:
-    - cron: "0 6 * * *"   # 每天 6:00 UTC 运行
+    - cron: "0 6 * * *" # 每天 6:00 UTC
 
 jobs:
   build:
     runs-on: ubuntu-latest
 
     steps:
+      # 1️⃣ Checkout 当前仓库
       - name: Checkout current repo
         uses: actions/checkout@v4
 
+      # 2️⃣ Checkout 上游仓库
       - name: Checkout MetaCubeX/meta-rules-dat (sing branch)
         uses: actions/checkout@v4
         with:
@@ -20,17 +22,17 @@ jobs:
           ref: sing
           path: upstream
 
+      # 3️⃣ 合并 ADS JSON 文件
       - name: Merge ADS JSON files
         shell: bash
         run: |
           set -euo pipefail
 
           SRC="upstream/geo/geosite"
-          DST="update"
+          DST="$GITHUB_WORKSPACE/update"
           OUT_JSON="${DST}/foreign_domain.json"
           OUT_LIST="${DST}/foreign_domain_files.txt"
 
-          # 确保 update 目录存在
           mkdir -p "$DST"
 
           # 精准匹配 ads（前后必须为符号或边界）
@@ -51,7 +53,7 @@ jobs:
           # 合并 domain_suffix 并去掉空行/空字符串
           TMP_DOMAINS=$(mktemp)
           for f in "${FILES[@]}"; do
-            jq -r '.rules[].domain_suffix[]?' "$f" >> "$TMP_DOMAINS"
+            jq -r '.rules[].domain_suffix[]?' "$f" | sed '/^\s*$/d' >> "$TMP_DOMAINS"
           done
 
           domains_json=$(jq -R -s -c 'split("\n") | map(select(length > 0))' "$TMP_DOMAINS")
@@ -67,15 +69,17 @@ jobs:
 
           echo "Merged JSON written to $OUT_JSON"
 
-      - name: Commit and Push update/
+      # 4️⃣ Commit & Push
+      - name: Commit & Push update/
+        shell: bash
         run: |
           git config --global user.email "action@github.com"
           git config --global user.name "GitHub Action"
 
-          # 确保在仓库根目录
-          cd $GITHUB_WORKSPACE
-
-          # 添加 update 下的文件
-          git add update/foreign_domain.json update/foreign_domain_files.txt || true
-          git commit -m "Update foreign_domain.json (merged ADS files)" || echo "No changes to commit"
-          git push || echo "Nothing to push"
+          git add update/foreign_domain.json update/foreign_domain_files.txt
+          if git diff --cached --quiet; then
+            echo "No changes to commit"
+          else
+            git commit -m "Update foreign_domain.json (merged ADS files)"
+            git push
+          fi
