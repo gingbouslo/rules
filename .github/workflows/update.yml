@@ -1,4 +1,4 @@
-name: Merge CN YAML Files (Preserve Original Format)
+name: Merge CN YAML Files (Safe & Efficient)
 
 on:
   workflow_dispatch:
@@ -23,7 +23,7 @@ jobs:
           mkdir -p "$GITHUB_WORKSPACE/temp_geo"
           cp -r geo/geosite/* "$GITHUB_WORKSPACE/temp_geo/"
 
-      - name: Merge CN YAML files (original format) and list files
+      - name: Merge CN YAML files (original format, safe)
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -60,13 +60,15 @@ jobs:
             echo "$f" >> "$FILE_LIST"
           done
 
-          # 第一个文件保留 payload:
-          grep -v '^[[:space:]]*$' "$FIRST_FILE" > "$OUTPUT_FILE"
+          # 第一个文件保留 payload:，去掉空行
+          awk 'NF{print}' "$FIRST_FILE" > "$OUTPUT_FILE"
 
-          # 其余文件去掉 payload: 直接追加
-          for f in "${OTHER_FILES[@]}"; do
-            grep -v '^[[:space:]]*$' "$f" | grep -v '^[[:space:]]*payload:' >> "$OUTPUT_FILE"
-          done
+          # 其余文件去掉 payload:，去掉空行，直接追加
+          if [[ ${#OTHER_FILES[@]} -gt 0 ]]; then
+            for f in "${OTHER_FILES[@]}"; do
+              awk 'NF && $0 !~ /^[[:space:]]*payload:/{print}' "$f" >> "$OUTPUT_FILE"
+            done
+          fi
 
           echo "Merged CN YAML saved to $OUTPUT_FILE"
           echo "List of merged files saved to $FILE_LIST"
