@@ -1,4 +1,4 @@
-name: Sing-box_Rules-set
+name: singbox_srs文件生成
 
 on:
   workflow_dispatch:
