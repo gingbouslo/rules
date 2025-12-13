@@ -1,4 +1,4 @@
-name: Merge Foreign Domain JSON
+name: 合并!cn-json
 
 on:
   workflow_dispatch:
@@ -35,7 +35,7 @@ jobs:
           EXACT_LIST=(
             gfw.json google.json youtube.json tiktok.json onedrive.json github.json
             telegram.json facebook.json twitter.json meta.json instagram.json paypal.json
-            reddit.json netflix.json discord.json
+            reddit.json netflix.json discord.json google-gemini
 
             steam.json steamcommunity.json steampowered.json epic.json epicgames.json
             origin.json ea.json uplay.json ubisoft.json battlenet.json blizzard.json
