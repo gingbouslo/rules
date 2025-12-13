@@ -1,4 +1,4 @@
-name: Mihomo_Rules-set
+name: mihomo_mrs文件生成
 
 on:
   workflow_dispatch:
