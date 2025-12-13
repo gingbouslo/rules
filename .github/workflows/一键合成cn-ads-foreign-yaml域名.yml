@@ -1,0 +1,86 @@
+name: 一键合成cn-ads-foreign-yaml域名
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 6 * * *"
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout current repo
+        uses: actions/checkout@v4
+
+      - name: Clone meta-rules-dat
+        run: |
+          git clone --depth=1 --branch meta https://github.com/MetaCubeX/meta-rules-dat.git meta
+
+      - name: Prepare directories
+        run: mkdir -p update
+
+      - name: Collect CN rules
+        run: |
+          echo "CN files:"
+          > update/cn_domain.yaml
+          echo "payload:" >> update/cn_domain.yaml
+
+          find meta/geo/geosite -name '*.yaml' | while read f; do
+            name=$(basename "$f")
+            if [[ "$name" =~ (^|[-_])cn([.-]|$) ]] && [[ ! "$name" =~ '!cn' ]]; then
+              echo " - $name"
+              sed -n 's/^[[:space:]]*-[[:space:]]*/  - /p' "$f" >> update/cn_domain.yaml
+            fi
+          done
+
+      - name: Collect ADS rules
+        run: |
+          echo "ADS files:"
+          > update/ads_domain.yaml
+          echo "payload:" >> update/ads_domain.yaml
+
+          find meta/geo/geosite -name '*.yaml' | while read f; do
+            name=$(basename "$f")
+            if [[ "$name" =~ (^|[-_])ads([.-]|$) ]]; then
+              echo " - $name"
+              sed -n 's/^[[:space:]]*-[[:space:]]*/  - /p' "$f" >> update/ads_domain.yaml
+            fi
+          done
+
+      - name: Collect FOREIGN rules
+        run: |
+          echo "FOREIGN files:"
+          > update/foreign_domain.yaml
+          echo "payload:" >> update/foreign_domain.yaml
+
+          EXACT_LIST=(
+            gfw.yaml google.yaml youtube.yaml tiktok.yaml onedrive.yaml github.yaml
+            telegram.yaml facebook.yaml twitter.yaml meta.yaml instagram.yaml paypal.yaml
+            reddit.yaml netflix.yaml discord.yaml
+          )
+
+          for f in "${EXACT_LIST[@]}"; do
+            path="meta/geo/geosite/$f"
+            if [[ -f "$path" ]]; then
+              echo " - $f"
+              sed -n 's/^[[:space:]]*-[[:space:]]*/  - /p' "$path" >> update/foreign_domain.yaml
+            fi
+          done
+
+          find meta/geo/geosite -name '*!cn*.yaml' | while read f; do
+            name=$(basename "$f")
+            if [[ ! "$name" =~ ads ]]; then
+              echo " - $name"
+              sed -n 's/^[[:space:]]*-[[:space:]]*/  - /p' "$f" >> update/foreign_domain.yaml
+            fi
+          done
+
+      - name: Commit and push
+        run: |
+          git config user.name "github-actions"
+          git config user.email "action@github.com"
+
+          git add update/*.yaml
+          git diff --cached --quiet || git commit -m "update cn / foreign / ads domain rules"
+          git push
