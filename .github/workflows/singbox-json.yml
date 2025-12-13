@@ -1,0 +1,174 @@
+name: Build Domain Rules (CN / Foreign / ADS)
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 6 * * *"   # 每天 6 点（UTC）
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout current repo
+        uses: actions/checkout@v4
+
+      - name: Checkout meta-rules-dat (sing branch)
+        uses: actions/checkout@v4
+        with:
+          repository: MetaCubeX/meta-rules-dat
+          ref: sing
+          path: meta-rules-dat
+
+      - name: Build domain rule files
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          SRC="meta-rules-dat/geo/geosite"
+          OUT_DIR="update"
+          mkdir -p "$OUT_DIR"
+
+          ########################
+          # helper: build json
+          ########################
+          build_json() {
+            local name="$1"
+            shift
+            local files=("$@")
+            local out="$OUT_DIR/${name}.json"
+
+            echo
+            echo "=== Building ${name}.json ==="
+            echo "Source files:"
+            for f in "${files[@]}"; do
+              echo " - $(basename "$f")"
+            done
+            echo "Total files: ${#files[@]}"
+
+            jq -r '.rules[].domain_suffix[]?' "${files[@]}" \
+              | sed '/^$/d' \
+              | sort -u > domains.txt
+
+            local count
+            count=$(wc -l < domains.txt | tr -d ' ')
+            echo "Total domains: $count"
+
+            jq -n \
+              --rawfile domains domains.txt \
+              '{
+                version: 2,
+                rules: [
+                  { domain_suffix: ($domains | split("\n") | map(select(length > 0))) }
+                ]
+              }' > "$out"
+
+            rm -f domains.txt
+          }
+
+          ########################
+          # 1. CN (cn 独立词，不含 !cn)
+          ########################
+          mapfile -t CN_FILES < <(
+            find "$SRC" -type f -name "*.json" \
+              | grep -Ev '!cn' \
+              | grep -E '(^|[^a-zA-Z0-9])cn([^a-zA-Z0-9]|\.json$)'
+          )
+
+          if [ "${#CN_FILES[@]}" -gt 0 ]; then
+            build_json "cn_domain" "${CN_FILES[@]}"
+          else
+            echo "No CN files found"
+          fi
+
+          ########################
+          # 2. ADS（ads 必须为独立词）
+          ########################
+          mapfile -t ADS_FILES < <(
+            find "$SRC" -type f -name "*.json" \
+              | grep -E '(^|[^a-zA-Z0-9])ads([^a-zA-Z0-9]|\.json$)'
+          )
+
+          if [ "${#ADS_FILES[@]}" -gt 0 ]; then
+            build_json "ads_domain" "${ADS_FILES[@]}"
+          else
+            echo "No ADS files found"
+          fi
+
+          ########################
+          # 3. FOREIGN
+          #   - 所有 !cn 且不含 ads
+          #   - + 指定完整文件名白名单
+          ########################
+          EXACT_LIST=(
+            gfw.json google.json youtube.json tiktok.json onedrive.json github.json
+            telegram.json facebook.json twitter.json meta.json instagram.json paypal.json
+            reddit.json netflix.json discord.json
+
+            steam.json steamcommunity.json steampowered.json epic.json epicgames.json
+            origin.json ea.json uplay.json ubisoft.json battlenet.json blizzard.json
+            rockstar.json psn.json xbox.json
+
+            medium.json tumblr.json blogspot.json blogger.json wordpress.json ghost.json
+            substack.json deviantart.json pixiv.json
+
+            binance.json coinbase.json kraken.json blockchain.json bitfinex.json okx.json
+            huobi.json ethereum.json bitcoin.json uniswap.json
+
+            arxiv.json nature.json science.json acm.json ieee.json springer.json jstor.json
+            researchgate.json pubmed.json
+
+            nordvpn.json expressvpn.json protonvpn.json surfshark.json windscribe.json
+            outline.json lantern.json psiphon.json mullvad.json
+
+            porn.json pornhub.json xvideos.json xnxx.json xhamster.json brazzers.json
+            youporn.json redtube.json spankbang.json rule34.json
+
+            openai.json anthropic.json novelai.json huggingface.json stability.json
+            midjourney.json civitai.json replicate.json perplexity.json
+          )
+
+          declare -A FILE_MAP
+          while IFS= read -r f; do
+            FILE_MAP["$(basename "$f")"]="$f"
+          done < <(find "$SRC" -type f -name "*.json")
+
+          FOREIGN_FILES=()
+
+          # !cn 且不含 ads
+          while IFS= read -r f; do
+            FOREIGN_FILES+=("$f")
+          done < <(
+            find "$SRC" -type f -name "*.json" \
+              | grep '!cn' \
+              | grep -Ev 'ads'
+          )
+
+          # 精确白名单
+          for name in "${EXACT_LIST[@]}"; do
+            if [[ -n "${FILE_MAP[$name]:-}" ]]; then
+              FOREIGN_FILES+=("${FILE_MAP[$name]}")
+            fi
+          done
+
+          if [ "${#FOREIGN_FILES[@]}" -gt 0 ]; then
+            build_json "foreign_domain" "${FOREIGN_FILES[@]}"
+          else
+            echo "No FOREIGN files found"
+          fi
+
+      - name: Commit and push
+        run: |
+          set -e
+
+          git config --global user.name "GitHub Action"
+          git config --global user.email "action@github.com"
+
+          git add update/*.json
+
+          if git diff --cached --quiet; then
+            echo "No changes to commit."
+          else
+            git commit -m "update domain rules (cn / foreign / ads)"
+            git push
+          fi
