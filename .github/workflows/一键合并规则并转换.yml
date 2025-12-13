@@ -53,7 +53,7 @@ jobs:
             rockstar.yaml psn.yaml xbox.yaml google-gemini.yaml
 
             medium.yaml tumblr.yaml blogspot.yaml blogger.yaml wordpress.yaml ghost.yaml
-            substack.yaml deviantart.yaml pixiv.yaml
+            substack.yaml deviantart.yaml pixiv.yaml google-registry-tld.yaml
 
             binance.yaml coinbase.yaml kraken.yaml blockchain.yaml bitfinex.yaml okx.yaml
             huobi.yaml ethereum.yaml bitcoin.yaml uniswap.yaml
