@@ -1,4 +1,4 @@
-name: !cn-json
+name: 合并!cn-json
 
 on:
   workflow_dispatch:
