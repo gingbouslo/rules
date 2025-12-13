@@ -1,4 +1,4 @@
-name: 合并cn-ads-foreign-yaml域名
+name: 合并cn-ads-foreign_yaml域名
 
 on:
   workflow_dispatch:
