@@ -1,26 +1,26 @@
-name: 合并!cn-json
+name: Merge Foreign Domain JSON
 
 on:
   workflow_dispatch:
   schedule:
-    - cron: "0 6 * * *" # 每天 6:00 UTC
+    - cron: "0 6 * * *"   # 每天 06:00 UTC
 
 jobs:
   merge:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout current repo
+      - name: Checkout current repository
         uses: actions/checkout@v4
 
-      - name: Checkout MetaCubeX/meta-rules-dat (sing)
+      - name: Checkout MetaCubeX/meta-rules-dat (sing branch)
         uses: actions/checkout@v4
         with:
           repository: MetaCubeX/meta-rules-dat
           ref: sing
           path: upstream
 
-      - name: Merge JSON rules
+      - name: Merge foreign domain JSON rules
         shell: bash
         run: |
           set -euo pipefail
@@ -31,6 +31,7 @@ jobs:
 
           mkdir -p "$DST"
 
+          # 精确匹配白名单
           EXACT_LIST=(
             gfw.json google.json youtube.json tiktok.json onedrive.json github.json
             telegram.json facebook.json twitter.json meta.json instagram.json paypal.json
@@ -61,7 +62,7 @@ jobs:
 
           FILES=()
 
-          # ① !cn 且无 ads
+          # ① 文件名包含 !cn 且不包含 ads
           while IFS= read -r f; do
             FILES+=("$f")
           done < <(
@@ -70,7 +71,7 @@ jobs:
               | grep -iv 'ads'
           )
 
-          # ② 精确文件名
+          # ② 精确文件名匹配
           for name in "${EXACT_LIST[@]}"; do
             if [ -f "$SRC/$name" ]; then
               FILES+=("$SRC/$name")
@@ -79,25 +80,29 @@ jobs:
 
           echo "Total files: ${#FILES[@]}"
 
-          TMP=$(mktemp)
+          TMP="$(mktemp)"
 
+          # 提取所有 domain_suffix，过滤空字符串
           for f in "${FILES[@]}"; do
             jq -r '.rules[].domain_suffix[]?' "$f" \
               | sed '/^\s*$/d' >> "$TMP"
           done
 
-          domains_json=$(jq -R -s 'split("\n") | map(select(length>0))' "$TMP")
+          # 用 jq 从文件直接生成最终 JSON（避免参数过长）
+          jq -R -s '
+            split("\n")
+            | map(select(length > 0))
+            | {
+                version: 2,
+                rules: [
+                  { domain_suffix: . }
+                ]
+              }
+          ' "$TMP" > "$OUT"
 
-          jq -n --argjson arr "$domains_json" '
-            {
-              version: 2,
-              rules: [
-                { domain_suffix: $arr }
-              ]
-            }
-          ' > "$OUT"
+          rm -f "$TMP"
 
-      - name: Commit & Push
+      - name: Commit & push result
         run: |
           git config user.name "GitHub Action"
           git config user.email "action@github.com"
@@ -105,7 +110,7 @@ jobs:
           git add update/foreign_domain.json
 
           if git diff --cached --quiet; then
-            echo "No changes"
+            echo "No changes to commit"
           else
             git commit -m "Update foreign_domain.json"
             git push
