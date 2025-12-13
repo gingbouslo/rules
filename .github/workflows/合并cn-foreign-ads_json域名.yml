@@ -24,7 +24,7 @@ jobs:
           set -euo pipefail
 
           SRC="meta-rules-dat/geo/geosite"
-          OUT_DIR="update"
+          OUT_DIR="singbox-rules"
           mkdir -p "$OUT_DIR"
 
           ########################
@@ -162,7 +162,7 @@ jobs:
           git config --global user.name "GitHub Action"
           git config --global user.email "action@github.com"
 
-          git add update/*.json
+          git add singbox-rules/*.json
 
           if git diff --cached --quiet; then
             echo "No changes to commit."
