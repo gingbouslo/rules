@@ -1,0 +1,81 @@
+name: 合并CN-JSON
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 6 * * *"
+
+jobs:
+  merge-cn:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout current repository
+        uses: actions/checkout@v4
+
+      - name: Checkout MetaCubeX/meta-rules-dat (sing branch)
+        uses: actions/checkout@v4
+        with:
+          repository: MetaCubeX/meta-rules-dat
+          ref: sing
+          path: upstream
+
+      - name: Merge CN domain JSON rules
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          SRC="upstream/geo/geosite"
+          DST="update"
+          OUT="${DST}/cn_domain.json"
+
+          mkdir -p "$DST"
+
+          FILES=()
+
+          # cn 必须是独立词，且不能包含 !cn
+          while IFS= read -r f; do
+            FILES+=("$f")
+          done < <(
+            find "$SRC" -type f -name "*.json" \
+              | grep -Ev '!cn' \
+              | grep -E '(^|[^a-zA-Z0-9])cn([^a-zA-Z0-9]|\.json$)'
+          )
+
+          echo "Total CN files: ${#FILES[@]}"
+
+          TMP="$(mktemp)"
+
+          # 提取 domain_suffix，过滤空字符串
+          for f in "${FILES[@]}"; do
+            jq -r '.rules[].domain_suffix[]?' "$f" \
+              | sed '/^\s*$/d' >> "$TMP"
+          done
+
+          # 从文件生成最终 JSON，避免参数过长
+          jq -R -s '
+            split("\n")
+            | map(select(length > 0))
+            | {
+                version: 2,
+                rules: [
+                  { domain_suffix: . }
+                ]
+              }
+          ' "$TMP" > "$OUT"
+
+          rm -f "$TMP"
+
+      - name: Commit & push result
+        run: |
+          git config user.name "GitHub Action"
+          git config user.email "action@github.com"
+
+          git add update/cn_domain.json
+
+          if git diff --cached --quiet; then
+            echo "No changes to commit"
+          else
+            git commit -m "Update cn_domain.json"
+            git push
+          fi
