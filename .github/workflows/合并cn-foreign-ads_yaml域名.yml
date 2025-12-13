@@ -2,8 +2,6 @@ name: 合并cn-foreign-ads_yaml域名
 
 on:
   workflow_dispatch:
-  schedule:
-    - cron: "0 6 * * *"
 
 jobs:
   merge:
