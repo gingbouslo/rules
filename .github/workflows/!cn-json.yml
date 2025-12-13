@@ -1,0 +1,112 @@
+name: !cn-json
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 6 * * *" # 每天 6:00 UTC
+
+jobs:
+  merge:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout current repo
+        uses: actions/checkout@v4
+
+      - name: Checkout MetaCubeX/meta-rules-dat (sing)
+        uses: actions/checkout@v4
+        with:
+          repository: MetaCubeX/meta-rules-dat
+          ref: sing
+          path: upstream
+
+      - name: Merge JSON rules
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          SRC="upstream/geo/geosite"
+          DST="update"
+          OUT="${DST}/foreign_domain.json"
+
+          mkdir -p "$DST"
+
+          EXACT_LIST=(
+            gfw.json google.json youtube.json tiktok.json onedrive.json github.json
+            telegram.json facebook.json twitter.json meta.json instagram.json paypal.json
+            reddit.json netflix.json discord.json
+
+            steam.json steamcommunity.json steampowered.json epic.json epicgames.json
+            origin.json ea.json uplay.json ubisoft.json battlenet.json blizzard.json
+            rockstar.json psn.json xbox.json
+
+            medium.json tumblr.json blogspot.json blogger.json wordpress.json ghost.json
+            substack.json deviantart.json pixiv.json
+
+            binance.json coinbase.json kraken.json blockchain.json bitfinex.json okx.json
+            huobi.json ethereum.json bitcoin.json uniswap.json
+
+            arxiv.json nature.json science.json acm.json ieee.json springer.json jstor.json
+            researchgate.json pubmed.json
+
+            nordvpn.json expressvpn.json protonvpn.json surfshark.json windscribe.json
+            outline.json lantern.json psiphon.json mullvad.json
+
+            porn.json pornhub.json xvideos.json xnxx.json xhamster.json brazzers.json
+            youporn.json redtube.json spankbang.json rule34.json
+
+            openai.json anthropic.json novelai.json huggingface.json stability.json
+            midjourney.json civitai.json replicate.json perplexity.json
+          )
+
+          FILES=()
+
+          # ① !cn 且无 ads
+          while IFS= read -r f; do
+            FILES+=("$f")
+          done < <(
+            find "$SRC" -type f -name "*.json" \
+              | grep -i '!cn' \
+              | grep -iv 'ads'
+          )
+
+          # ② 精确文件名
+          for name in "${EXACT_LIST[@]}"; do
+            if [ -f "$SRC/$name" ]; then
+              FILES+=("$SRC/$name")
+            fi
+          done
+
+          echo "Total files: ${#FILES[@]}"
+
+          TMP=$(mktemp)
+
+          for f in "${FILES[@]}"; do
+            jq -r '.rules[].domain_suffix[]?' "$f" \
+              | sed '/^\s*$/d' >> "$TMP"
+          done
+
+          domains_json=$(jq -R -s 'split("\n") | map(select(length>0))' "$TMP")
+
+          jq -n --argjson arr "$domains_json" '
+            {
+              version: 2,
+              rules: [
+                { domain_suffix: $arr }
+              ]
+            }
+          ' > "$OUT"
+
+      - name: Commit & Push
+        run: |
+          git config user.name "GitHub Action"
+          git config user.email "action@github.com"
+
+          git add update/foreign_domain.json
+
+          if git diff --cached --quiet; then
+            echo "No changes"
+          else
+            git commit -m "Update foreign_domain.json"
+            git push
+          fi
