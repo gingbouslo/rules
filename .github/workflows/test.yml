@@ -46,7 +46,7 @@ jobs:
           EXACT_FOREIGN=(
             gfw.yaml google.yaml google-gemini.yaml youtube.yaml tiktok.yaml onedrive.yaml github.yaml
             telegram.yaml facebook.yaml twitter.yaml meta.yaml instagram.yaml paypal.yaml
-            reddit.yaml netflix.yaml discord.yaml
+            reddit.yaml netflix.yaml discord.yaml google-gemini.yaml
 
             steam.yaml steamcommunity.yaml steampowered.yaml epic.yaml epicgames.yaml
             origin.yaml ea.yaml uplay.yaml ubisoft.yaml battlenet.yaml blizzard.yaml
