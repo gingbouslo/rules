@@ -1,0 +1,128 @@
+name: Merge Geosite CN / ADS / FOREIGN
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 6 * * *"
+
+jobs:
+  merge:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout current repo
+        uses: actions/checkout@v4
+
+      - name: Clone meta-rules-dat
+        run: |
+          git clone --depth=1 -b meta https://github.com/MetaCubeX/meta-rules-dat.git meta
+
+      - name: Prepare update directory
+        run: mkdir -p update
+
+      - name: Merge rules
+        run: |
+          set -euo pipefail
+
+          process_rules() {
+            sed -E '
+              /^[[:space:]]*payload:/d;
+              /^[[:space:]]*$/d;
+              /^[[:space:]]*-[[:space:]]*DOMAIN-REGEX,/d;
+              s/^[[:space:]]*-[[:space:]]*DOMAIN-SUFFIX,([^\r\n]+)/  - +.\1/;
+              s/^[[:space:]]*-[[:space:]]*DOMAIN,([^\r\n]+)/  - \1/;
+              s/^[[:space:]]*-[[:space:]]*/  - /;
+            '
+          }
+
+          CN_OUT=update/cn_domain.yaml
+          ADS_OUT=update/ads_domain.yaml
+          FOREIGN_OUT=update/foreign_domain.yaml
+
+          echo "payload:" > "$CN_OUT"
+          echo "payload:" > "$ADS_OUT"
+          echo "payload:" > "$FOREIGN_OUT"
+
+          EXACT_FOREIGN=(
+            gfw.yaml google.yaml google-gemini.yaml youtube.yaml tiktok.yaml onedrive.yaml github.yaml
+            telegram.yaml facebook.yaml twitter.yaml meta.yaml instagram.yaml paypal.yaml
+            reddit.yaml netflix.yaml discord.yaml
+
+            steam.yaml steamcommunity.yaml steampowered.yaml epic.yaml epicgames.yaml
+            origin.yaml ea.yaml uplay.yaml ubisoft.yaml battlenet.yaml blizzard.yaml
+            rockstar.yaml psn.yaml xbox.yaml google-gemini.yaml
+
+            medium.yaml tumblr.yaml blogspot.yaml blogger.yaml wordpress.yaml ghost.yaml
+            substack.yaml deviantart.yaml pixiv.yaml
+
+            binance.yaml coinbase.yaml kraken.yaml blockchain.yaml bitfinex.yaml okx.yaml
+            huobi.yaml ethereum.yaml bitcoin.yaml uniswap.yaml
+
+            arxiv.yaml nature.yaml science.yaml acm.yaml ieee.yaml springer.yaml jstor.yaml
+            researchgate.yaml pubmed.yaml
+
+            nordvpn.yaml expressvpn.yaml protonvpn.yaml surfshark.yaml windscribe.yaml
+            outline.yaml lantern.yaml psiphon.yaml mullvad.yaml
+
+            porn.yaml pornhub.yaml xvideos.yaml xnxx.yaml xhamster.yaml brazzers.yaml
+            youporn.yaml redtube.yaml spankbang.yaml rule34.yaml
+
+            openai.yaml anthropic.yaml novelai.yaml huggingface.yaml stability.yaml
+            midjourney.yaml civitai.yaml replicate.yaml perplexity.yaml
+          )
+
+          is_exact_foreign() {
+            local f="$1"
+            for e in "${EXACT_FOREIGN[@]}"; do
+              [[ "$f" == "$e" ]] && return 0
+            done
+            return 1
+          }
+
+          echo "===== CN FILES ====="
+          find meta/geo/geosite -name '*.yaml' | while read f; do
+            name=$(basename "$f")
+            if [[ "$name" =~ (^|[-_])cn([.-]|$) ]] && [[ ! "$name" =~ '!cn' ]]; then
+              echo "[CN] $name"
+              process_rules < "$f" >> "$CN_OUT"
+            fi
+          done
+
+          echo "===== ADS FILES ====="
+          find meta/geo/geosite -name '*.yaml' | while read f; do
+            name=$(basename "$f")
+            if [[ "$name" =~ (^|[-_])ads([.-]|$) ]]; then
+              echo "[ADS] $name"
+              process_rules < "$f" >> "$ADS_OUT"
+            fi
+          done
+
+          echo "===== FOREIGN FILES ====="
+          find meta/geo/geosite -name '*.yaml' | while read f; do
+            name=$(basename "$f")
+
+            if [[ "$name" =~ '!cn' ]] && [[ ! "$name" =~ 'ads' ]]; then
+              echo "[FOREIGN][!cn] $name"
+              process_rules < "$f" >> "$FOREIGN_OUT"
+              continue
+            fi
+
+            if is_exact_foreign "$name"; then
+              echo "[FOREIGN][EXACT] $name"
+              process_rules < "$f" >> "$FOREIGN_OUT"
+            fi
+          done
+
+      - name: Commit and push
+        run: |
+          git config user.name "github-actions"
+          git config user.email "action@github.com"
+
+          git add update/*.yaml
+
+          if git diff --cached --quiet; then
+            echo "No changes"
+          else
+            git commit -m "Update cn / ads / foreign domain rules"
+            git push
+          fi
