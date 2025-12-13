@@ -1,0 +1,68 @@
+name: mihomo_mrs文件生成
+
+on:
+  workflow_dispatch:
+
+jobs:
+  convert:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install mihomo
+        run: |
+          wget https://github.com/MetaCubeX/mihomo/releases/download/v1.19.17/mihomo-linux-amd64-v1.19.17.gz
+          gunzip mihomo-linux-amd64-v1.19.17.gz
+          mv mihomo-linux-amd64-v1.19.17 mihomo
+          chmod +x mihomo
+          sudo mv mihomo /usr/local/bin/mihomo
+
+      - name: Find and convert rule files
+        run: |
+          RULE_DIR="mihomo-rules"
+
+          find "$RULE_DIR" -type f \( -name "*_domain.yaml" -o -name "*_domain.text" -o -name "*_ip.yaml" -o -name "*_ip.text" \) | while read FILE; do
+            BASENAME=$(basename "$FILE")
+            DIRNAME=$(dirname "$FILE")
+
+            # Determine type: domain or ip
+            if [[ "$BASENAME" == *_domain.* ]]; then
+              TYPE="domain"
+            elif [[ "$BASENAME" == *_ip.* ]]; then
+              TYPE="ipcidr"
+            else
+              echo "Unknown type: $FILE"
+              continue
+            fi
+
+            # Determine format: yaml or text
+            EXT="${BASENAME##*.}"
+            if [[ "$EXT" == "yaml" ]]; then
+              FORMAT="yaml"
+            elif [[ "$EXT" == "text" ]]; then
+              FORMAT="text"
+            else
+              echo "Unknown extension: $FILE"
+              continue
+            fi
+
+            # Output
+            OUTPUT="${FILE%.*}.mrs"
+
+            echo "Converting $FILE → $OUTPUT"
+            mihomo convert-ruleset "$TYPE" "$FORMAT" "$FILE" "$OUTPUT"
+          done
+
+      - name: Commit and push changes
+        run: |
+          git config --global user.name "GitHub Action"
+          git config --global user.email "actions@github.com"
+
+          git add .
+          if git commit -m "Auto convert Mihomo rules"; then
+            git push
+          else
+            echo "No changes to commit"
+          fi
