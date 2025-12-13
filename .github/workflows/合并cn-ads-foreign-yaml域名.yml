@@ -1,4 +1,4 @@
-name: Merge Geosite CN / ADS / FOREIGN
+name: 合并cn-ads-foreign-yaml域名
 
 on:
   workflow_dispatch:
