@@ -1,0 +1,337 @@
+name: Merge and Generate All Rules
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 8 * * *"
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout current repo
+        uses: actions/checkout@v4
+
+      - name: Clone meta-rules-dat (meta branch) for YAML
+        run: |
+          git clone --depth=1 -b meta https://github.com/MetaCubeX/meta-rules-dat.git meta
+
+      - name: Merge YAML rules (cn / ads / foreign)
+        run: |
+          set -euo pipefail
+
+          process_rules() {
+            sed -E '
+              /^[[:space:]]*payload:/d;
+              /^[[:space:]]*$/d;
+              /^[[:space:]]*-[[:space:]]*DOMAIN-REGEX,/d;
+              s/^[[:space:]]*-[[:space:]]*DOMAIN-SUFFIX,([^\r\n]+)/  - +.\1/;
+              s/^[[:space:]]*-[[:space:]]*DOMAIN,([^\r\n]+)/  - \1/;
+              s/^[[:space:]]*-[[:space:]]*/  - /;
+            '
+          }
+
+          CN_OUT=mihomo-rules/cn_domain.yaml
+          ADS_OUT=mihomo-rules/ads_domain.yaml
+          FOREIGN_OUT=mihomo-rules/foreign_domain.yaml
+
+          echo "payload:" > "$CN_OUT"
+          echo "payload:" > "$ADS_OUT"
+          echo "payload:" > "$FOREIGN_OUT"
+
+          EXACT_FOREIGN=(
+            gfw.yaml google.yaml google-gemini.yaml youtube.yaml tiktok.yaml onedrive.yaml github.yaml
+            telegram.yaml facebook.yaml twitter.yaml meta.yaml instagram.yaml paypal.yaml
+            reddit.yaml netflix.yaml discord.yaml
+
+            steam.yaml steamcommunity.yaml steampowered.yaml epic.yaml epicgames.yaml
+            origin.yaml ea.yaml uplay.yaml ubisoft.yaml battlenet.yaml blizzard.yaml
+            rockstar.yaml psn.yaml xbox.yaml google-gemini.yaml
+
+            medium.yaml tumblr.yaml blogspot.yaml blogger.yaml wordpress.yaml ghost.yaml
+            substack.yaml deviantart.yaml pixiv.yaml
+
+            binance.yaml coinbase.yaml kraken.yaml blockchain.yaml bitfinex.yaml okx.yaml
+            huobi.yaml ethereum.yaml bitcoin.yaml uniswap.yaml
+
+            arxiv.yaml nature.yaml science.yaml acm.yaml ieee.yaml springer.yaml jstor.yaml
+            researchgate.yaml pubmed.yaml
+
+            nordvpn.yaml expressvpn.yaml protonvpn.yaml surfshark.yaml windscribe.yaml
+            outline.yaml lantern.yaml psiphon.yaml mullvad.yaml
+
+            porn.yaml pornhub.yaml xvideos.yaml xnxx.yaml xhamster.yaml brazzers.yaml
+            youporn.yaml redtube.yaml spankbang.yaml rule34.yaml
+
+            openai.yaml anthropic.yaml novelai.yaml huggingface.yaml stability.yaml
+            midjourney.yaml civitai.yaml replicate.yaml perplexity.yaml
+          )
+
+          is_exact_foreign() {
+            local f="$1"
+            for e in "${EXACT_FOREIGN[@]}"; do
+              [[ "$f" == "$e" ]] && return 0
+            done
+            return 1
+          }
+
+          echo "===== CN FILES ====="
+          find meta/geo/geosite -name '*.yaml' | while read f; do
+            name=$(basename "$f")
+            if [[ "$name" =~ (^|[-_])cn([.-]|$) ]] && [[ ! "$name" =~ '!cn' ]]; then
+              echo "[CN] $name"
+              process_rules < "$f" >> "$CN_OUT"
+            fi
+          done
+
+          echo "===== ADS FILES ====="
+          find meta/geo/geosite -name '*.yaml' | while read f; do
+            name=$(basename "$f")
+            if [[ "$name" =~ (^|[-_])ads([.-]|$) ]]; then
+              echo "[ADS] $name"
+              process_rules < "$f" >> "$ADS_OUT"
+            fi
+          done
+
+          echo "===== FOREIGN FILES ====="
+          find meta/geo/geosite -name '*.yaml' | while read f; do
+            name=$(basename "$f")
+
+            if [[ "$name" =~ '!cn' ]] && [[ ! "$name" =~ 'ads' ]]; then
+              echo "[FOREIGN][!cn] $name"
+              process_rules < "$f" >> "$FOREIGN_OUT"
+              continue
+            fi
+
+            if is_exact_foreign "$name"; then
+              echo "[FOREIGN][EXACT] $name"
+              process_rules < "$f" >> "$FOREIGN_OUT"
+            fi
+          done
+
+      - name: Install mihomo
+        run: |
+          wget https://github.com/MetaCubeX/mihomo/releases/download/v1.19.17/mihomo-linux-amd64-v1.19.17.gz
+          gunzip mihomo-linux-amd64-v1.19.17.gz
+          mv mihomo-linux-amd64-v1.19.17 mihomo
+          chmod +x mihomo
+          sudo mv mihomo /usr/local/bin/mihomo
+
+      - name: Find and convert rule files to MRS
+        run: |
+          RULE_DIR="mihomo-rules"
+
+          find "$RULE_DIR" -type f \( -name "*_domain.yaml" -o -name "*_domain.text" -o -name "*_ip.yaml" -o -name "*_ip.text" \) | while read FILE; do
+            BASENAME=$(basename "$FILE")
+            DIRNAME=$(dirname "$FILE")
+
+            # Determine type: domain or ip
+            if [[ "$BASENAME" == *_domain.* ]]; then
+              TYPE="domain"
+            elif [[ "$BASENAME" == *_ip.* ]]; then
+              TYPE="ipcidr"
+            else
+              echo "Unknown type: $FILE"
+              continue
+            fi
+
+            # Determine format: yaml or text
+            EXT="${BASENAME##*.}"
+            if [[ "$EXT" == "yaml" ]]; then
+              FORMAT="yaml"
+            elif [[ "$EXT" == "text" ]]; then
+              FORMAT="text"
+            else
+              echo "Unknown extension: $FILE"
+              continue
+            fi
+
+            # Output
+            OUTPUT="${FILE%.*}.mrs"
+
+            echo "Converting $FILE → $OUTPUT"
+            mihomo convert-ruleset "$TYPE" "$FORMAT" "$FILE" "$OUTPUT"
+          done
+
+      - name: Checkout meta-rules-dat (sing branch) for JSON
+        uses: actions/checkout@v4
+        with:
+          repository: MetaCubeX/meta-rules-dat
+          ref: sing
+          path: meta-sing
+
+      - name: Build JSON domain rule files (cn / ads / foreign)
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          SRC="meta-sing/geo/geosite"
+          OUT_DIR="singbox-rules"
+          mkdir -p "$OUT_DIR"
+
+          ########################
+          # helper: build json
+          ########################
+          build_json() {
+            local name="$1"
+            shift
+            local files=("$@")
+            local out="$OUT_DIR/${name}.json"
+
+            echo
+            echo "=== Building ${name}.json ==="
+            echo "Source files:"
+            for f in "${files[@]}"; do
+              echo " - $(basename "$f")"
+            done
+            echo "Total files: ${#files[@]}"
+
+            jq -r '.rules[].domain_suffix[]?' "${files[@]}" \
+              | sed '/^$/d' \
+              | sort -u > domains.txt
+
+            local count
+            count=$(wc -l < domains.txt | tr -d ' ')
+            echo "Total domains: $count"
+
+            jq -n \
+              --rawfile domains domains.txt \
+              '{
+                version: 2,
+                rules: [
+                  { domain_suffix: ($domains | split("\n") | map(select(length > 0))) }
+                ]
+              }' > "$out"
+
+            rm -f domains.txt
+          }
+
+          ########################
+          # 1. CN (cn 独立词，不含 !cn)
+          ########################
+          mapfile -t CN_FILES < <(
+            find "$SRC" -type f -name "*.json" \
+              | grep -Ev '!cn' \
+              | grep -E '(^|[^a-zA-Z0-9])cn([^a-zA-Z0-9]|\.json$)'
+          )
+
+          if [ "${#CN_FILES[@]}" -gt 0 ]; then
+            build_json "cn_domain" "${CN_FILES[@]}"
+          else
+            echo "No CN files found"
+          fi
+
+          ########################
+          # 2. ADS（ads 必须为独立词）
+          ########################
+          mapfile -t ADS_FILES < <(
+            find "$SRC" -type f -name "*.json" \
+              | grep -E '(^|[^a-zA-Z0-9])ads([^a-zA-Z0-9]|\.json$)'
+          )
+
+          if [ "${#ADS_FILES[@]}" -gt 0 ]; then
+            build_json "ads_domain" "${ADS_FILES[@]}"
+          else
+            echo "No ADS files found"
+          fi
+
+          ########################
+          # 3. FOREIGN
+          #   - 所有 !cn 且不含 ads
+          #   - + 指定完整文件名白名单
+          ########################
+          EXACT_LIST=(
+            gfw.json google.json youtube.json tiktok.json onedrive.json github.json
+            telegram.json facebook.json twitter.json meta.json instagram.json paypal.json
+            reddit.json netflix.json discord.json google-gemini.json
+
+            steam.json steamcommunity.json steampowered.json epic.json epicgames.json
+            origin.json ea.json uplay.json ubisoft.json battlenet.json blizzard.json
+            rockstar.json psn.json xbox.json
+
+            medium.json tumblr.json blogspot.json blogger.json wordpress.json ghost.json
+            substack.json deviantart.json pixiv.json
+
+            binance.json coinbase.json kraken.json blockchain.json bitfinex.json okx.json
+            huobi.json ethereum.json bitcoin.json uniswap.json
+
+            arxiv.json nature.json science.json acm.json ieee.json springer.json jstor.json
+            researchgate.json pubmed.json
+
+            nordvpn.json expressvpn.json protonvpn.json surfshark.json windscribe.json
+            outline.json lantern.json psiphon.json mullvad.json
+
+            porn.json pornhub.json xvideos.json xnxx.json xhamster.json brazzers.json
+            youporn.json redtube.json spankbang.json rule34.json
+
+            openai.json anthropic.json novelai.json huggingface.json stability.json
+            midjourney.json civitai.json replicate.json perplexity.json
+          )
+
+          declare -A FILE_MAP
+          while IFS= read -r f; do
+            FILE_MAP["$(basename "$f")"]="$f"
+          done < <(find "$SRC" -type f -name "*.json")
+
+          FOREIGN_FILES=()
+
+          # !cn 且不含 ads
+          while IFS= read -r f; do
+            FOREIGN_FILES+=("$f")
+          done < <(
+            find "$SRC" -type f -name "*.json" \
+              | grep '!cn' \
+              | grep -Ev 'ads'
+          )
+
+          # 精确白名单
+          for name in "${EXACT_LIST[@]}"; do
+            if [[ -n "${FILE_MAP[$name]:-}" ]]; then
+              FOREIGN_FILES+=("${FILE_MAP[$name]}")
+            fi
+          done
+
+          if [ "${#FOREIGN_FILES[@]}" -gt 0 ]; then
+            build_json "foreign_domain" "${FOREIGN_FILES[@]}"
+          else
+            echo "No FOREIGN files found"
+          fi
+
+      - name: Get latest sing-box version
+        id: get_version
+        run: |
+          VERSION=$(curl -s https://api.github.com/repos/SagerNet/sing-box/releases/latest | grep tag_name | cut -d '"' -f 4 | sed 's/v//')
+          echo "SING_BOX_VERSION=$VERSION" >> $GITHUB_ENV
+
+      - name: Download sing-box
+        run: |
+          wget https://github.com/SagerNet/sing-box/releases/download/v${{ env.SING_BOX_VERSION }}/sing-box-${{ env.SING_BOX_VERSION }}-linux-amd64.tar.gz
+          tar -xzf sing-box-${{ env.SING_BOX_VERSION }}-linux-amd64.tar.gz
+          echo "$PWD/sing-box-${{ env.SING_BOX_VERSION }}-linux-amd64" >> $GITHUB_PATH
+
+      - name: Compile JSON to SRS
+        run: |
+          cd singbox-rules
+          for file in *.json; do
+            [ -f "$file" ] || continue
+            echo "Compiling $file → ${file%.json}.srs"
+            ../sing-box-${{ env.SING_BOX_VERSION }}-linux-amd64/sing-box rule-set compile \
+              --output "${file%.json}.srs" "$file"
+          done
+
+      - name: Commit and push all changes
+        run: |
+          git config --global user.name "GitHub Action"
+          git config --global user.email "actions@github.com"
+
+          git add mihomo-rules/*.yaml mihomo-rules/*.mrs singbox-rules/*.json singbox-rules/*.srs
+
+          if git diff --cached --quiet; then
+            echo "No changes to commit."
+          else
+            git commit -m "Update all rules (YAML/MRS/JSON/SRS)"
+            git push
+          fi
