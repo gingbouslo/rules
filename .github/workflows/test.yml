@@ -1,4 +1,4 @@
-name: Merge and Generate All Rules
+name: test
 
 on:
   workflow_dispatch:
