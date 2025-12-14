@@ -22,6 +22,15 @@ jobs:
         run: |
           set -euo pipefail
 
+          # 定义 is_exact_foreign 函数
+          is_exact_foreign() {
+            local f="$1"
+            for e in "${EXACT_FOREIGN[@]}"; do
+              [[ "$f" == "$e" ]] && return 0
+            done
+            return 1
+          }
+
           process_rules() {
             sed -E '
               /^[[:space:]]*payload:/d;
@@ -61,12 +70,15 @@ jobs:
           echo "===== FOREIGN FILES ====="
           find meta/geo/geosite -name '*.yaml' | while read f; do
             name=$(basename "$f")
+            
+            # 检查是否为 foreign 文件
             if [[ "$name" =~ '!cn' ]] && [[ ! "$name" =~ 'ads' ]]; then
               echo "[FOREIGN][!cn] $name"
               process_rules < "$f" >> "$FOREIGN_OUT"
               continue
             fi
-
+            
+            # 检查是否为 exact foreign 文件
             if is_exact_foreign "$name"; then
               echo "[FOREIGN][EXACT] $name"
               process_rules < "$f" >> "$FOREIGN_OUT"
@@ -216,15 +228,4 @@ jobs:
           )
 
           if [ "${#ADS_FILES[@]}" -gt 0 ]; then
-            build_json "ads_domain" "${ADS_FILES[@]}"
-          else
-            echo "No ADS files found"
-          fi
-
-          ########################
-          # 3. FOREIGN
-          #   - 所有 !cn 且不含 ads
-          #   - + 指定完整文件名白名单
-          ########################
-          EXACT_LIST=(
-            gfw.json
+            build_json "ads_domain" "${ADS
