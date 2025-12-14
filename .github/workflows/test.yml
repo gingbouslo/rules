@@ -1,4 +1,4 @@
-name: test
+name: Merge and Generate All Rules
 
 on:
   workflow_dispatch:
@@ -58,7 +58,7 @@ jobs:
 
           echo "===== Merging Direct Rules for CN ====="
           curl -fsSL \
-            https://raw.githubusercontent.com/evecus/files/refs/heads/main/mihomo-rules/diretc.yaml \
+            https://raw.githubusercontent.com/evecus/files/refs/heads/main/mihomo-rules/direct.yaml \
             | normalize >> tmp/cn.txt
 
           sort -u tmp/cn.txt | sed 's/^/  - /' >> "$CN_OUT"
@@ -138,7 +138,7 @@ jobs:
             | xargs extract_domains >> tmp/cn.json.txt
 
           curl -fsSL \
-            https://raw.githubusercontent.com/evecus/files/refs/heads/main/singbox-rules/direct.json \
+            https://raw.githubusercontent.com/evecus/files/refs/heads/main/singbox-rules/cnplus_domain.json \
             | jq -r '.rules[].domain_suffix[]?' >> tmp/cn.json.txt
 
           sort -u tmp/cn.json.txt > tmp/cn.final
