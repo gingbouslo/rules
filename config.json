@@ -1,0 +1,274 @@
+{
+  "dns": {
+    "servers": [
+      {
+        "tag": "google",
+        "type": "https",
+        "server": "8.8.8.8",
+        "detour": "PROXY"
+      },
+      {
+        "tag": "ali",
+        "type": "https",
+        "server": "223.5.5.5"
+      },
+      {
+        "tag": "fakeip",
+        "type": "fakeip",
+        "inet4_range": "198.18.0.0/15",
+        "inet6_range": "fc00::/18"
+      }
+    ],
+    "rules": [
+      {
+        "clash_mode": "direct",
+        "action": "route",
+        "server": "ali"
+      },
+      {
+        "clash_mode": "global",
+        "action": "route",
+        "server": "fakeip"
+      },
+      {
+        "query_type": "HTTPS",
+        "action": "reject"
+      },
+      {
+        "query_type": [
+          "A",
+          "AAAA"
+        ],
+        "action": "route",
+        "server": "fakeip",
+        "rewrite_ttl": 1
+      },
+      {
+        "rule_set": [
+          "cn_domain"
+        ],
+        "action": "route",
+        "server": "ali"
+      }
+    ],
+    "final": "google",
+    "strategy": "prefer_ipv4",
+    "independent_cache": true,
+    "reverse_mapping": true
+  },
+  "inbounds": [
+    {
+      "tag": "dns-in",
+      "type": "direct",
+      "listen": "::",
+      "listen_port": 1053
+    },
+    {
+      "tag": "redirect-in",
+      "type": "redirect",
+      "listen": "::",
+      "listen_port": 7892
+    },
+    {
+      "tag": "tproxy-in",
+      "type": "tproxy",
+      "listen": "::",
+      "listen_port": 7893
+    },
+    {
+      "tag": "tun-in",
+      "type": "tun",
+      "interface_name": "momo",
+      "address": [
+        "172.31.0.1/30",
+        "fdfe:dcba:9876::1/126"
+      ],
+      "auto_route": false,
+      "auto_redirect": false
+    }
+  ],
+  "experimental": {
+    "cache_file": {
+      "enabled": true,
+      "path": "/etc/momo/run/cache.db",
+      "store_fakeip": false
+    },
+    "clash_api": {
+      "external_controller": "0.0.0.0:9090",
+      "external_ui": "/etc/momo/run/ui",
+      "external_ui_download_url": "https://github.com/Zephyruso/zashboard/archive/refs/heads/gh-pages.zip",
+      "external_ui_download_detour": "PROXY",
+      "secret": "",
+      "default_mode": "rule"
+    }
+  },
+  "route": {
+    "rules": [
+      {
+        "action": "sniff",
+        "sniffer": [
+          "http",
+          "tls",
+          "quic",
+          "dns"
+        ]
+      },
+      {
+        "type": "logical",
+        "mode": "or",
+        "rules": [
+          {
+            "port": 53
+          },
+          {
+            "protocol": "dns"
+          }
+        ],
+        "action": "hijack-dns"
+      },
+      {
+        "rule_set": "ads",
+        "outbound": "Reject"
+      },
+      {
+        "rule_set": "medirect",
+        "outbound": "Direct"
+      },
+      {
+        "ip_is_private": true,
+        "outbound": "Direct"
+      },
+      {
+        "clash_mode": "direct",
+        "outbound": "Direct"
+      },
+      {
+        "rule_set": "meproxy",
+        "outbound": "PROXY"
+      },
+      {
+        "rule_set": "foreign",
+        "outbound": "PROXY"
+      },
+      {
+        "rule_set": "cn_domain",
+        "outbound": "Direct"
+      },
+      {
+        "action": "resolve"
+      },
+      {
+        "rule_set": "privateip",
+        "outbound": "Direct"
+      },
+      {
+        "rule_set": "cn-ip",
+        "outbound": "Direct"
+      },
+      {
+        "rule_set": "geoip-telegram",
+        "outbound": "PROXY"
+      },
+      {
+        "rule_set": "geoip-google",
+        "outbound": "PROXY"
+      }
+    ],
+    "rule_set": [
+      {
+        "tag": "ads",
+        "type": "remote",
+        "format": "binary",
+        "url": "https://raw.githubusercontent.com/217heidai/adblockfilters/main/rules/adblocksingbox.srs",
+        "download_detour": "PROXY"
+      },
+      {
+        "tag": "medirect",
+        "type": "remote",
+        "format": "binary",
+        "url": "https://raw.githubusercontent.com/evecus/files/refs/heads/main/singbox-rules/direct.srs",
+        "download_detour": "PROXY"
+      },
+      {
+        "tag": "meproxy",
+        "type": "remote",
+        "format": "binary",
+        "url": "https://raw.githubusercontent.com/evecus/files/refs/heads/main/singbox-rules/proxy.srs",
+        "download_detour": "PROXY"
+      },
+      {
+        "tag": "foreign",
+        "type": "remote",
+        "format": "binary",
+        "url": "https://raw.githubusercontent.com/evecus/files/refs/heads/main/singbox-rules/foreign_domain.srs",
+        "download_detour": "PROXY"
+      },
+      {
+        "tag": "cn_domain",
+        "type": "remote",
+        "format": "binary",
+        "url": "https://raw.githubusercontent.com/evecus/files/refs/heads/main/singbox-rules/cnplus_domain.srs",
+        "download_detour": "PROXY"
+      },
+      {
+        "tag": "geoip-google",
+        "type": "remote",
+        "format": "binary",
+        "url": "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo/geoip/google.srs",
+        "download_detour": "PROXY"
+      },
+      {
+        "tag": "geoip-telegram",
+        "type": "remote",
+        "format": "binary",
+        "url": "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo/geoip/telegram.srs",
+        "download_detour": "PROXY"
+      },
+      {
+        "tag": "privateip",
+        "type": "remote",
+        "format": "binary",
+        "url": "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/refs/heads/sing/geo/geoip/private.srs",
+        "download_detour": "PROXY"
+      },
+      {
+        "tag": "cn-ip",
+        "type": "remote",
+        "format": "binary",
+        "url": "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/refs/heads/sing/geo/geoip/cn.srs",
+        "download_detour": "PROXY"
+      }
+    ],
+    "final": "OTHERS",
+    "auto_detect_interface": true,
+    "default_domain_resolver": {
+      "server": "ali"
+    }
+  },
+  "log": {
+    "disabled": true
+  },
+  "outbounds": [
+    {
+      "tag": "PROXY",
+      "type": "selector",
+      "outbounds": []
+    },
+    {
+      "tag": "OTHERS",
+      "type": "selector",
+      "outbounds": [
+        "Direct",
+        "PROXY"
+      ]
+    },
+    {
+      "tag": "Direct",
+      "type": "direct"
+    },
+    {
+      "tag": "Reject",
+      "type": "block"
+    }
+  ]
+}
