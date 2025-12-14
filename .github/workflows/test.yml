@@ -103,12 +103,7 @@ jobs:
           chmod +x mihomo-linux-amd64-v1.19.17
           sudo mv mihomo-linux-amd64-v1.19.17 /usr/local/bin/mihomo
 
-      - name: Convert Mihomo YAML to MRS
-        run: |
-          for f in mihomo-rules/*.yaml; do
-            out="${f%.yaml}.mrs"
-            mihomo convert-ruleset domain yaml "$f" "$out"
-          done
+      
 
       ################################
       # Sing-box JSON merge
