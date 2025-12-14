@@ -1,4 +1,4 @@
-name: Merge and Generate All Rules
+name: test
 
 on:
   workflow_dispatch:
@@ -47,29 +47,20 @@ jobs:
             '
           }
 
-          echo "===== CN FILES ====="
-          find meta/geo/geosite -name '*.yaml' | while read -r f; do
-            name=$(basename "$f")
-            if [[ "$name" =~ (^|[-_])cn([.-]|$) ]] && [[ ! "$name" =~ '!cn' ]]; then
-              echo "[CN] $name"
-              normalize < "$f" >> tmp/cn.txt
-            fi
+          # CN YAML
+          for f in $(find meta/geo/geosite -name '*cn*.yaml' ! -name '*ads*.yaml'); do
+            normalize < "$f" >> tmp/cn.txt
           done
 
-          echo "===== Merging Direct Rules for CN ====="
           curl -fsSL \
-            https://raw.githubusercontent.com/evecus/files/refs/heads/main/mihomo-rules/diretc.yaml \
+            https://raw.githubusercontent.com/evecus/files/refs/heads/main/mihomo-rules/direct.yaml \
             | normalize >> tmp/cn.txt
 
           sort -u tmp/cn.txt | sed 's/^/  - /' >> "$CN_OUT"
 
-          echo "===== ADS FILES ====="
-          find meta/geo/geosite -name '*.yaml' | while read -r f; do
-            name=$(basename "$f")
-            if [[ "$name" =~ (^|[-_])ads([.-]|$) ]]; then
-              echo "[ADS] $name"
-              normalize < "$f" >> tmp/ads.txt
-            fi
+          # ADS YAML
+          for f in $(find meta/geo/geosite -name '*ads*.yaml'); do
+            normalize < "$f" >> tmp/ads.txt
           done
 
           curl -fsSL \
@@ -78,13 +69,9 @@ jobs:
 
           sort -u tmp/ads.txt | sed 's/^/  - /' >> "$ADS_OUT"
 
-          echo "===== FOREIGN FILES ====="
-          find meta/geo/geosite -name '*.yaml' | while read -r f; do
-            name=$(basename "$f")
-            if [[ "$name" =~ '!cn' ]] && [[ ! "$name" =~ 'ads' ]]; then
-              echo "[FOREIGN] $name"
-              normalize < "$f" >> tmp/foreign.txt
-            fi
+          # FOREIGN YAML
+          for f in $(find meta/geo/geosite -name '*.yaml' ! -name '*cn*' ! -name '*ads*' -o -name '*!cn*.yaml'); do
+            normalize < "$f" >> tmp/foreign.txt
           done
 
           curl -fsSL \
@@ -124,18 +111,16 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          mkdir -p singbox-rules tmp
 
           SRC=meta-sing/geo/geosite
           OUT=singbox-rules
-          mkdir -p "$OUT" tmp
 
-          extract_domains() {
-            jq -r '.rules[].domain_suffix[]?' "$@"
-          }
-
-          echo "===== CN JSON ====="
-          find "$SRC" -name '*.json' | grep -Ev '!cn' | grep -E '(^|[^a-zA-Z0-9])cn([^a-zA-Z0-9]|\.json$)' \
-            | xargs extract_domains >> tmp/cn.json.txt
+          # CN JSON
+          > tmp/cn.json.txt
+          while read -r f; do
+            jq -r '.rules[].domain_suffix[]?' "$f" >> tmp/cn.json.txt
+          done < <(find "$SRC" -name '*.json' | grep -Ev '!cn' | grep -E '(^|[^a-zA-Z0-9])cn([^a-zA-Z0-9]|\.json$)')
 
           curl -fsSL \
             https://raw.githubusercontent.com/evecus/files/refs/heads/main/singbox-rules/direct.json \
@@ -148,9 +133,11 @@ jobs:
             rules: [{ domain_suffix: ($d | split("\n") | map(select(length>0))) }]
           }' > "$OUT/cn_domain.json"
 
-          echo "===== ADS JSON ====="
-          find "$SRC" -name '*.json' | grep -E '(^|[^a-zA-Z0-9])ads([^a-zA-Z0-9]|\.json$)' \
-            | xargs extract_domains >> tmp/ads.json.txt
+          # ADS JSON
+          > tmp/ads.json.txt
+          while read -r f; do
+            jq -r '.rules[].domain_suffix[]?' "$f" >> tmp/ads.json.txt
+          done < <(find "$SRC" -name '*.json' | grep -E '(^|[^a-zA-Z0-9])ads([^a-zA-Z0-9]|\.json$)')
 
           curl -fsSL \
             https://raw.githubusercontent.com/evecus/files/refs/heads/main/singbox-rules/ads.json \
@@ -163,9 +150,11 @@ jobs:
             rules: [{ domain_suffix: ($d | split("\n") | map(select(length>0))) }]
           }' > "$OUT/ads_domain.json"
 
-          echo "===== FOREIGN JSON ====="
-          find "$SRC" -name '*.json' | grep '!cn' | grep -Ev 'ads' \
-            | xargs extract_domains >> tmp/foreign.json.txt
+          # FOREIGN JSON
+          > tmp/foreign.json.txt
+          while read -r f; do
+            jq -r '.rules[].domain_suffix[]?' "$f" >> tmp/foreign.json.txt
+          done < <(find "$SRC" -name '*.json' | grep '!cn' | grep -Ev 'ads')
 
           curl -fsSL \
             https://raw.githubusercontent.com/evecus/files/refs/heads/main/singbox-rules/foreign.json \
@@ -179,28 +168,12 @@ jobs:
           }' > "$OUT/foreign_domain.json"
 
       ################################
-      # Compile SRS
-      ################################
-      - name: Install sing-box
-        run: |
-          VER=$(curl -s https://api.github.com/repos/SagerNet/sing-box/releases/latest | jq -r .tag_name | sed 's/v//')
-          wget -q https://github.com/SagerNet/sing-box/releases/download/v$VER/sing-box-$VER-linux-amd64.tar.gz
-          tar -xzf sing-box-$VER-linux-amd64.tar.gz
-
-      - name: Compile JSON to SRS
-        run: |
-          cd singbox-rules
-          for f in *.json; do
-            ../sing-box-*/sing-box rule-set compile "$f"
-          done
-
-      ################################
-      # Commit
+      # Commit changes
       ################################
       - name: Commit and push
         run: |
           git config user.name "GitHub Action"
           git config user.email "actions@github.com"
-          git add .
+          git add mihomo-rules singbox-rules
           git diff --cached --quiet || git commit -m "Update rules"
           git push
