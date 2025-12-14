@@ -1,4 +1,4 @@
-name: test
+name: Merge and Generate All Rules
 
 on:
   workflow_dispatch:
@@ -58,7 +58,7 @@ jobs:
 
           echo "===== Merging Direct Rules for CN ====="
           curl -fsSL \
-            https://raw.githubusercontent.com/evecus/files/refs/heads/main/mihomo-rules/direct.yaml \
+            https://raw.githubusercontent.com/evecus/files/refs/heads/main/mihomo-rules/diretc.yaml \
             | normalize >> tmp/cn.txt
 
           sort -u tmp/cn.txt | sed 's/^/  - /' >> "$CN_OUT"
@@ -103,7 +103,12 @@ jobs:
           chmod +x mihomo-linux-amd64-v1.19.17
           sudo mv mihomo-linux-amd64-v1.19.17 /usr/local/bin/mihomo
 
-      
+      - name: Convert Mihomo YAML to MRS
+        run: |
+          for f in mihomo-rules/*.yaml; do
+            out="${f%.yaml}.mrs"
+            mihomo convert-ruleset domain yaml "$f" "$out"
+          done
 
       ################################
       # Sing-box JSON merge
@@ -133,7 +138,7 @@ jobs:
             | xargs extract_domains >> tmp/cn.json.txt
 
           curl -fsSL \
-            https://raw.githubusercontent.com/evecus/files/refs/heads/main/singbox-rules/cnplus_domain.json \
+            https://raw.githubusercontent.com/evecus/files/refs/heads/main/singbox-rules/direct.json \
             | jq -r '.rules[].domain_suffix[]?' >> tmp/cn.json.txt
 
           sort -u tmp/cn.json.txt > tmp/cn.final
