@@ -25,7 +25,6 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-
           mkdir -p mihomo-rules tmp
 
           CN_OUT=mihomo-rules/cn_domain.yaml
@@ -47,43 +46,47 @@ jobs:
             '
           }
 
-          # CN YAML
+          filter_valid_domains() {
+            grep -E '^([a-zA-Z0-9_\-]+\.)+[a-zA-Z]{2,}$|^\+\.[a-zA-Z0-9_\-\.]+$'
+          }
+
+          # ---- CN YAML ----
+          > tmp/cn.txt
           for f in $(find meta/geo/geosite -name '*cn*.yaml' ! -name '*ads*.yaml'); do
             normalize < "$f" >> tmp/cn.txt
           done
 
-          curl -fsSL \
-            https://raw.githubusercontent.com/evecus/files/refs/heads/main/mihomo-rules/direct.yaml \
+          curl -fsSL https://raw.githubusercontent.com/evecus/files/refs/heads/main/mihomo-rules/direct.yaml \
             | normalize >> tmp/cn.txt
 
-          sort -u tmp/cn.txt | sed 's/^/  - /' >> "$CN_OUT"
+          filter_valid_domains tmp/cn.txt | sort -u | sed 's/^/  - /' >> "$CN_OUT"
 
-          # ADS YAML
+          # ---- ADS YAML ----
+          > tmp/ads.txt
           for f in $(find meta/geo/geosite -name '*ads*.yaml'); do
             normalize < "$f" >> tmp/ads.txt
           done
 
-          curl -fsSL \
-            https://raw.githubusercontent.com/evecus/files/refs/heads/main/mihomo-rules/ads.yaml \
+          curl -fsSL https://raw.githubusercontent.com/evecus/files/refs/heads/main/mihomo-rules/ads.yaml \
             | normalize >> tmp/ads.txt
 
-          sort -u tmp/ads.txt | sed 's/^/  - /' >> "$ADS_OUT"
+          filter_valid_domains tmp/ads.txt | sort -u | sed 's/^/  - /' >> "$ADS_OUT"
 
-          # FOREIGN YAML
-          for f in $(find meta/geo/geosite -name '*.yaml' ! -name '*cn*' ! -name '*ads*' -o -name '*!cn*.yaml'); do
+          # ---- FOREIGN YAML ----
+          > tmp/foreign.txt
+          for f in $(find meta/geo/geosite -name '*.yaml' ! -name '*cn*.yaml' ! -name '*ads*.yaml' -o -name '*!cn*.yaml'); do
             normalize < "$f" >> tmp/foreign.txt
           done
 
-          curl -fsSL \
-            https://raw.githubusercontent.com/evecus/files/refs/heads/main/mihomo-rules/foreign.yaml \
+          curl -fsSL https://raw.githubusercontent.com/evecus/files/refs/heads/main/mihomo-rules/foreign.yaml \
             | normalize >> tmp/foreign.txt
 
-          sort -u tmp/foreign.txt | sed 's/^/  - /' >> "$FOREIGN_OUT"
+          filter_valid_domains tmp/foreign.txt | sort -u | sed 's/^/  - /' >> "$FOREIGN_OUT"
 
       ################################
-      # Install mihomo
+      # Install Mihomo
       ################################
-      - name: Install mihomo
+      - name: Install Mihomo
         run: |
           wget -q https://github.com/MetaCubeX/mihomo/releases/download/v1.19.17/mihomo-linux-amd64-v1.19.17.gz
           gunzip mihomo-linux-amd64-v1.19.17.gz
@@ -93,8 +96,10 @@ jobs:
       - name: Convert Mihomo YAML to MRS
         run: |
           for f in mihomo-rules/*.yaml; do
+            # 跳过空文件
+            [ -s "$f" ] || continue
             out="${f%.yaml}.mrs"
-            mihomo convert-ruleset domain yaml "$f" "$out"
+            mihomo convert-ruleset domain yaml "$f" "$out" || echo "Skip invalid file $f"
           done
 
       ################################
@@ -116,56 +121,42 @@ jobs:
           SRC=meta-sing/geo/geosite
           OUT=singbox-rules
 
+          build_json() {
+            local out="$1"; shift
+            > tmp/file.txt
+            for f in "$@"; do
+              jq -r '.rules[].domain_suffix[]?' "$f" >> tmp/file.txt
+            done
+            # 添加远程合并
+            case "$out" in
+              cn_domain.json)
+                curl -fsSL https://raw.githubusercontent.com/evecus/files/refs/heads/main/singbox-rules/cnplus_domain.json \
+                  | jq -r '.rules[].domain_suffix[]?' >> tmp/file.txt ;;
+              ads_domain.json)
+                curl -fsSL https://raw.githubusercontent.com/evecus/files/refs/heads/main/singbox-rules/ads.json \
+                  | jq -r '.rules[].domain_suffix[]?' >> tmp/file.txt ;;
+              foreign_domain.json)
+                curl -fsSL https://raw.githubusercontent.com/evecus/files/refs/heads/main/singbox-rules/foreign.json \
+                  | jq -r '.rules[].domain_suffix[]?' >> tmp/file.txt ;;
+            esac
+            sort -u tmp/file.txt > tmp/file.final
+            jq -n --rawfile d tmp/file.final '{
+              version: 2,
+              rules: [{ domain_suffix: ($d | split("\n") | map(select(length>0))) }]
+            }' > "$OUT/$out"
+          }
+
           # CN JSON
-          > tmp/cn.json.txt
-          while read -r f; do
-            jq -r '.rules[].domain_suffix[]?' "$f" >> tmp/cn.json.txt
-          done < <(find "$SRC" -name '*.json' | grep -Ev '!cn' | grep -E '(^|[^a-zA-Z0-9])cn([^a-zA-Z0-9]|\.json$)')
-
-          curl -fsSL \
-            https://raw.githubusercontent.com/evecus/files/refs/heads/main/singbox-rules/direct.json \
-            | jq -r '.rules[].domain_suffix[]?' >> tmp/cn.json.txt
-
-          sort -u tmp/cn.json.txt > tmp/cn.final
-
-          jq -n --rawfile d tmp/cn.final '{
-            version: 2,
-            rules: [{ domain_suffix: ($d | split("\n") | map(select(length>0))) }]
-          }' > "$OUT/cn_domain.json"
+          mapfile -t CN_FILES < <(find "$SRC" -name '*.json' | grep -Ev '!cn' | grep -E '(^|[^a-zA-Z0-9])cn([^a-zA-Z0-9]|\.json$)')
+          [ "${#CN_FILES[@]}" -gt 0 ] && build_json cn_domain.json "${CN_FILES[@]}"
 
           # ADS JSON
-          > tmp/ads.json.txt
-          while read -r f; do
-            jq -r '.rules[].domain_suffix[]?' "$f" >> tmp/ads.json.txt
-          done < <(find "$SRC" -name '*.json' | grep -E '(^|[^a-zA-Z0-9])ads([^a-zA-Z0-9]|\.json$)')
-
-          curl -fsSL \
-            https://raw.githubusercontent.com/evecus/files/refs/heads/main/singbox-rules/ads.json \
-            | jq -r '.rules[].domain_suffix[]?' >> tmp/ads.json.txt
-
-          sort -u tmp/ads.json.txt > tmp/ads.final
-
-          jq -n --rawfile d tmp/ads.final '{
-            version: 2,
-            rules: [{ domain_suffix: ($d | split("\n") | map(select(length>0))) }]
-          }' > "$OUT/ads_domain.json"
+          mapfile -t ADS_FILES < <(find "$SRC" -name '*.json' | grep -E '(^|[^a-zA-Z0-9])ads([^a-zA-Z0-9]|\.json$)')
+          [ "${#ADS_FILES[@]}" -gt 0 ] && build_json ads_domain.json "${ADS_FILES[@]}"
 
           # FOREIGN JSON
-          > tmp/foreign.json.txt
-          while read -r f; do
-            jq -r '.rules[].domain_suffix[]?' "$f" >> tmp/foreign.json.txt
-          done < <(find "$SRC" -name '*.json' | grep '!cn' | grep -Ev 'ads')
-
-          curl -fsSL \
-            https://raw.githubusercontent.com/evecus/files/refs/heads/main/singbox-rules/foreign.json \
-            | jq -r '.rules[].domain_suffix[]?' >> tmp/foreign.json.txt
-
-          sort -u tmp/foreign.json.txt > tmp/foreign.final
-
-          jq -n --rawfile d tmp/foreign.final '{
-            version: 2,
-            rules: [{ domain_suffix: ($d | split("\n") | map(select(length>0))) }]
-          }' > "$OUT/foreign_domain.json"
+          mapfile -t FOREIGN_FILES < <(find "$SRC" -name '*.json' | grep '!cn' | grep -Ev 'ads')
+          [ "${#FOREIGN_FILES[@]}" -gt 0 ] && build_json foreign_domain.json "${FOREIGN_FILES[@]}"
 
       ################################
       # Commit changes
