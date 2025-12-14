@@ -18,29 +18,15 @@ jobs:
         run: |
           git clone --depth=1 -b meta https://github.com/MetaCubeX/meta-rules-dat.git meta
 
-      - name: Merge YAML rules (cn / ads / foreign)
+      ################################
+      # Mihomo YAML merge
+      ################################
+      - name: Merge Mihomo YAML rules
+        shell: bash
         run: |
           set -euo pipefail
 
-          # 定义 is_exact_foreign 函数
-          is_exact_foreign() {
-            local f="$1"
-            for e in "${EXACT_FOREIGN[@]}"; do
-              [[ "$f" == "$e" ]] && return 0
-            done
-            return 1
-          }
-
-          process_rules() {
-            sed -E '
-              /^[[:space:]]*payload:/d;
-              /^[[:space:]]*$/d;
-              /^[[:space:]]*-[[:space:]]*DOMAIN-REGEX,/d;
-              s/^[[:space:]]*-[[:space:]]*DOMAIN-SUFFIX,([^\r\n]+)/  - +.\1/;
-              s/^[[:space:]]*-[[:space:]]*DOMAIN,([^\r\n]+)/  - \1/;
-              s/^[[:space:]]*-[[:space:]]*/  - /;
-            '
-          }
+          mkdir -p mihomo-rules tmp
 
           CN_OUT=mihomo-rules/cn_domain.yaml
           ADS_OUT=mihomo-rules/ads_domain.yaml
@@ -50,182 +36,171 @@ jobs:
           echo "payload:" > "$ADS_OUT"
           echo "payload:" > "$FOREIGN_OUT"
 
-          # 拉取并合并 ADS 规则
-          echo "===== Merging ADS Rules ====="
-          curl -s https://raw.githubusercontent.com/evecus/files/refs/heads/main/mihomo-rules/ads.yaml | process_rules >> "$ADS_OUT"
-          
+          normalize() {
+            sed -E '
+              /^[[:space:]]*payload:/d
+              /^[[:space:]]*$/d
+              /^[[:space:]]*-[[:space:]]*DOMAIN-REGEX,/d
+              s/^[[:space:]]*-[[:space:]]*DOMAIN-SUFFIX,([^\r\n]+)/+.\1/
+              s/^[[:space:]]*-[[:space:]]*DOMAIN,([^\r\n]+)/\1/
+              s/^[[:space:]]*-[[:space:]]*//
+            '
+          }
+
           echo "===== CN FILES ====="
-          find meta/geo/geosite -name '*.yaml' | while read f; do
+          find meta/geo/geosite -name '*.yaml' | while read -r f; do
             name=$(basename "$f")
             if [[ "$name" =~ (^|[-_])cn([.-]|$) ]] && [[ ! "$name" =~ '!cn' ]]; then
               echo "[CN] $name"
-              process_rules < "$f" >> "$CN_OUT"
+              normalize < "$f" >> tmp/cn.txt
             fi
           done
 
-          # 拉取并合并 direct 规则
           echo "===== Merging Direct Rules for CN ====="
-          curl -s https://raw.githubusercontent.com/evecus/files/refs/heads/main/mihomo-rules/direct.yaml | process_rules >> "$CN_OUT"
+          curl -fsSL \
+            https://raw.githubusercontent.com/evecus/files/refs/heads/main/mihomo-rules/diretc.yaml \
+            | normalize >> tmp/cn.txt
+
+          sort -u tmp/cn.txt | sed 's/^/  - /' >> "$CN_OUT"
+
+          echo "===== ADS FILES ====="
+          find meta/geo/geosite -name '*.yaml' | while read -r f; do
+            name=$(basename "$f")
+            if [[ "$name" =~ (^|[-_])ads([.-]|$) ]]; then
+              echo "[ADS] $name"
+              normalize < "$f" >> tmp/ads.txt
+            fi
+          done
+
+          curl -fsSL \
+            https://raw.githubusercontent.com/evecus/files/refs/heads/main/mihomo-rules/ads.yaml \
+            | normalize >> tmp/ads.txt
+
+          sort -u tmp/ads.txt | sed 's/^/  - /' >> "$ADS_OUT"
 
           echo "===== FOREIGN FILES ====="
-          find meta/geo/geosite -name '*.yaml' | while read f; do
+          find meta/geo/geosite -name '*.yaml' | while read -r f; do
             name=$(basename "$f")
-            
-            # 检查是否为 foreign 文件
             if [[ "$name" =~ '!cn' ]] && [[ ! "$name" =~ 'ads' ]]; then
-              echo "[FOREIGN][!cn] $name"
-              process_rules < "$f" >> "$FOREIGN_OUT"
-              continue
-            fi
-            
-            # 检查是否为 exact foreign 文件
-            if is_exact_foreign "$name"; then
-              echo "[FOREIGN][EXACT] $name"
-              process_rules < "$f" >> "$FOREIGN_OUT"
+              echo "[FOREIGN] $name"
+              normalize < "$f" >> tmp/foreign.txt
             fi
           done
 
-          # 拉取并合并 foreign 规则
-          echo "===== Merging Foreign Rules ====="
-          curl -s https://raw.githubusercontent.com/evecus/files/refs/heads/main/mihomo-rules/foreign.yaml | process_rules >> "$FOREIGN_OUT"
+          curl -fsSL \
+            https://raw.githubusercontent.com/evecus/files/refs/heads/main/mihomo-rules/foreign.yaml \
+            | normalize >> tmp/foreign.txt
 
+          sort -u tmp/foreign.txt | sed 's/^/  - /' >> "$FOREIGN_OUT"
+
+      ################################
+      # Install mihomo
+      ################################
       - name: Install mihomo
         run: |
-          wget https://github.com/MetaCubeX/mihomo/releases/download/v1.19.17/mihomo-linux-amd64-v1.19.17.gz
+          wget -q https://github.com/MetaCubeX/mihomo/releases/download/v1.19.17/mihomo-linux-amd64-v1.19.17.gz
           gunzip mihomo-linux-amd64-v1.19.17.gz
-          mv mihomo-linux-amd64-v1.19.17 mihomo
-          chmod +x mihomo
-          sudo mv mihomo /usr/local/bin/mihomo
+          chmod +x mihomo-linux-amd64-v1.19.17
+          sudo mv mihomo-linux-amd64-v1.19.17 /usr/local/bin/mihomo
 
-      - name: Find and convert rule files to MRS
+      - name: Convert Mihomo YAML to MRS
         run: |
-          RULE_DIR="mihomo-rules"
-
-          find "$RULE_DIR" -type f \( -name "*_domain.yaml" -o -name "*_domain.text" -o -name "*_ip.yaml" -o -name "*_ip.text" \) | while read FILE; do
-            BASENAME=$(basename "$FILE")
-            DIRNAME=$(dirname "$FILE")
-
-            # Determine type: domain or ip
-            if [[ "$BASENAME" == *_domain.* ]]; then
-              TYPE="domain"
-            elif [[ "$BASENAME" == *_ip.* ]]; then
-              TYPE="ipcidr"
-            else
-              echo "Unknown type: $FILE"
-              continue
-            fi
-
-            # Determine format: yaml or text
-            EXT="${BASENAME##*.}"
-            if [[ "$EXT" == "yaml" ]]; then
-              FORMAT="yaml"
-            elif [[ "$EXT" == "text" ]]; then
-              FORMAT="text"
-            else
-              echo "Unknown extension: $FILE"
-              continue
-            fi
-
-            # Output
-            OUTPUT="${FILE%.*}.mrs"
-
-            echo "Converting $FILE → $OUTPUT"
-            mihomo convert-ruleset "$TYPE" "$FORMAT" "$FILE" "$OUTPUT"
+          for f in mihomo-rules/*.yaml; do
+            out="${f%.yaml}.mrs"
+            mihomo convert-ruleset domain yaml "$f" "$out"
           done
 
-      - name: Checkout meta-rules-dat (sing branch) for JSON
+      ################################
+      # Sing-box JSON merge
+      ################################
+      - name: Checkout meta-rules-dat (sing branch)
         uses: actions/checkout@v4
         with:
           repository: MetaCubeX/meta-rules-dat
           ref: sing
           path: meta-sing
 
-      - name: Build JSON domain rule files (cn / ads / foreign)
+      - name: Build sing-box JSON rules
         shell: bash
         run: |
           set -euo pipefail
 
-          SRC="meta-sing/geo/geosite"
-          OUT_DIR="singbox-rules"
-          mkdir -p "$OUT_DIR"
+          SRC=meta-sing/geo/geosite
+          OUT=singbox-rules
+          mkdir -p "$OUT" tmp
 
-          ########################
-          # helper: build json
-          ########################
-          build_json() {
-            local name="$1"
-            shift
-            local files=("$@")
-            local out="$OUT_DIR/${name}.json"
-
-            echo
-            echo "=== Building ${name}.json ==="
-            echo "Source files:"
-            for f in "${files[@]}"; do
-              echo " - $(basename "$f")"
-            done
-            echo "Total files: ${#files[@]}"
-            
-            jq -r '.rules[].domain_suffix[]?' "${files[@]}" \
-              | sed '/^$/d' \
-              | sort -u > domains.txt
-
-            # 拉取并合并 ads.json
-            if [[ "$name" == "ads_domain" ]]; then
-              echo "===== Merging Ads Rules ====="
-              curl -s https://raw.githubusercontent.com/evecus/files/refs/heads/main/singbox-rules/ads.json | jq -r '.rules[].domain_suffix[]?' >> domains.txt
-            fi
-
-            # 拉取并合并 direct.json
-            if [[ "$name" == "cn_domain" ]]; then
-              echo "===== Merging Direct Rules for CN ====="
-              curl -s https://raw.githubusercontent.com/evecus/files/refs/heads/main/singbox-rules/direct.json | jq -r '.rules[].domain_suffix[]?' >> domains.txt
-            fi
-
-            # 拉取并合并 foreign.json
-            if [[ "$name" == "foreign_domain" ]]; then
-              echo "===== Merging Foreign Rules ====="
-              curl -s https://raw.githubusercontent.com/evecus/files/refs/heads/main/singbox-rules/foreign.json | jq -r '.rules[].domain_suffix[]?' >> domains.txt
-            fi
-
-            local count
-            count=$(wc -l < domains.txt | tr -d ' ')
-            echo "Total domains: $count"
-
-            jq -n \
-              --rawfile domains domains.txt \
-              '{
-                version: 2,
-                rules: [
-                  { domain_suffix: ($domains | split("\n") | map(select(length > 0))) }
-                ]
-              }' > "$out"
-
-            rm -f domains.txt
+          extract_domains() {
+            jq -r '.rules[].domain_suffix[]?' "$@"
           }
 
-          ########################
-          # 1. CN (cn 独立词，不含 !cn)
-          ########################
-          mapfile -t CN_FILES < <(
-            find "$SRC" -type f -name "*.json" \
-              | grep -Ev '!cn' \
-              | grep -E '(^|[^a-zA-Z0-9])cn([^a-zA-Z0-9]|\.json$)'
-          )
+          echo "===== CN JSON ====="
+          find "$SRC" -name '*.json' | grep -Ev '!cn' | grep -E '(^|[^a-zA-Z0-9])cn([^a-zA-Z0-9]|\.json$)' \
+            | xargs extract_domains >> tmp/cn.json.txt
 
-          if [ "${#CN_FILES[@]}" -gt 0 ]; then
-            build_json "cn_domain" "${CN_FILES[@]}"
-          else
-            echo "No CN files found"
-          fi
+          curl -fsSL \
+            https://raw.githubusercontent.com/evecus/files/refs/heads/main/singbox-rules/direct.json \
+            | jq -r '.rules[].domain_suffix[]?' >> tmp/cn.json.txt
 
-          ########################
-          # 2. ADS（ads 必须为独立词）
-          ########################
-          mapfile -t ADS_FILES < <(
-            find "$SRC" -type f -name "*.json" \
-              | grep -E '(^|[^a-zA-Z0-9])ads([^a-zA-Z0-9]|\.json$)'
-          )
+          sort -u tmp/cn.json.txt > tmp/cn.final
 
-          if [ "${#ADS_FILES[@]}" -gt 0 ]; then
-            build_json "ads_domain" "${ADS
+          jq -n --rawfile d tmp/cn.final '{
+            version: 2,
+            rules: [{ domain_suffix: ($d | split("\n") | map(select(length>0))) }]
+          }' > "$OUT/cn_domain.json"
+
+          echo "===== ADS JSON ====="
+          find "$SRC" -name '*.json' | grep -E '(^|[^a-zA-Z0-9])ads([^a-zA-Z0-9]|\.json$)' \
+            | xargs extract_domains >> tmp/ads.json.txt
+
+          curl -fsSL \
+            https://raw.githubusercontent.com/evecus/files/refs/heads/main/singbox-rules/ads.json \
+            | jq -r '.rules[].domain_suffix[]?' >> tmp/ads.json.txt
+
+          sort -u tmp/ads.json.txt > tmp/ads.final
+
+          jq -n --rawfile d tmp/ads.final '{
+            version: 2,
+            rules: [{ domain_suffix: ($d | split("\n") | map(select(length>0))) }]
+          }' > "$OUT/ads_domain.json"
+
+          echo "===== FOREIGN JSON ====="
+          find "$SRC" -name '*.json' | grep '!cn' | grep -Ev 'ads' \
+            | xargs extract_domains >> tmp/foreign.json.txt
+
+          curl -fsSL \
+            https://raw.githubusercontent.com/evecus/files/refs/heads/main/singbox-rules/foreign.json \
+            | jq -r '.rules[].domain_suffix[]?' >> tmp/foreign.json.txt
+
+          sort -u tmp/foreign.json.txt > tmp/foreign.final
+
+          jq -n --rawfile d tmp/foreign.final '{
+            version: 2,
+            rules: [{ domain_suffix: ($d | split("\n") | map(select(length>0))) }]
+          }' > "$OUT/foreign_domain.json"
+
+      ################################
+      # Compile SRS
+      ################################
+      - name: Install sing-box
+        run: |
+          VER=$(curl -s https://api.github.com/repos/SagerNet/sing-box/releases/latest | jq -r .tag_name | sed 's/v//')
+          wget -q https://github.com/SagerNet/sing-box/releases/download/v$VER/sing-box-$VER-linux-amd64.tar.gz
+          tar -xzf sing-box-$VER-linux-amd64.tar.gz
+
+      - name: Compile JSON to SRS
+        run: |
+          cd singbox-rules
+          for f in *.json; do
+            ../sing-box-*/sing-box rule-set compile "$f"
+          done
+
+      ################################
+      # Commit
+      ################################
+      - name: Commit and push
+        run: |
+          git config user.name "GitHub Action"
+          git config user.email "actions@github.com"
+          git add .
+          git diff --cached --quiet || git commit -m "Update rules"
+          git push
